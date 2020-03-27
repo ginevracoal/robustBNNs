@@ -26,34 +26,25 @@ def execution_time(start, end):
 # data loaders #
 ################
 
-def data_loaders(dataset_name, batch_size, n_inputs, shuffle=True):
+def data_loaders(dataset_name, batch_size, n_inputs, channels="first", shuffle=True):
     random.seed(0)
-    x_train, y_train, x_test, y_test, input_shape, num_classes, data_format = \
-        load_dataset(dataset_name=dataset_name, n_inputs=n_inputs)
+    x_train, y_train, x_test, y_test, input_shape, num_classes = \
+        load_dataset(dataset_name=dataset_name, n_inputs=n_inputs, channels=channels)
 
     train_loader = DataLoader(dataset=list(zip(x_train, y_train)), batch_size=batch_size, shuffle=shuffle)
     test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=batch_size, shuffle=shuffle)
 
     # todo: check shuffling seed on data loaders
 
-    input_size = input_shape[0]*input_shape[1]*input_shape[2]
+    # input_size = input_shape[0]*input_shape[1]*input_shape[2]
     output_size = 10
 
-    return train_loader, test_loader, input_size, output_size
+    return train_loader, test_loader, input_shape, output_size
 
-def load_fashion_mnist(img_rows=28, img_cols=28, n_inputs=None):
+def load_fashion_mnist(channels, img_rows=28, img_cols=28):
     print("\nLoading fashion mnist.")
 
     (x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
-
-    if K.image_data_format() == 'channels_first':
-        x_train = x_train.reshape(x_train.shape[0], 1, img_rows, img_cols)
-        x_test = x_test.reshape(x_test.shape[0], 1, img_rows, img_cols)
-        input_shape = (1, img_rows, img_cols)
-    else:
-        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 1)
-        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 1)
-        input_shape = (img_rows, img_cols, 1)
 
     x_train = x_train.astype('float32')
     x_test = x_test.astype('float32')
@@ -63,33 +54,25 @@ def load_fashion_mnist(img_rows=28, img_cols=28, n_inputs=None):
     y_train = keras.utils.to_categorical(y_train, 10)
     y_test = keras.utils.to_categorical(y_test, 10)
 
-    if n_inputs:
-        x_train = x_train[:n_inputs]
-        y_train = y_train[:n_inputs]
-        x_test = x_test[:n_inputs]
-        y_test = y_test[:n_inputs]
+    if channels == "first":
+        x_train = x_train.reshape(x_train.shape[0], 1, img_rows, img_cols)
+        x_test = x_test.reshape(x_test.shape[0], 1, img_rows, img_cols)
 
+    elif channels == "last":
+        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 1)
+        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 1)
+    
+    input_shape = x_train.shape[1:]
     num_classes = 10
-    data_format = 'channels_last'
+    return x_train, y_train, x_test, y_test, input_shape, num_classes
 
-    print('x_train shape:', x_train.shape, '\nx_test shape:', x_test.shape)
-    return x_train, y_train, x_test, y_test, input_shape, num_classes, data_format
 
-def load_mnist(img_rows=28, img_cols=28, n_inputs=None):
+def load_mnist(channels, img_rows=28, img_cols=28):
 
     print("\nLoading mnist.")
 
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
 
-    if K.image_data_format() == 'channels_first':
-        x_train = x_train.reshape(x_train.shape[0], 1, img_rows, img_cols)
-        x_test = x_test.reshape(x_test.shape[0], 1, img_rows, img_cols)
-        input_shape = (1, img_rows, img_cols)
-    else:
-        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 1)
-        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 1)
-        input_shape = (img_rows, img_cols, 1)
-
     x_train = x_train.astype('float32')
     x_test = x_test.astype('float32')
     x_train /= 255
@@ -98,21 +81,19 @@ def load_mnist(img_rows=28, img_cols=28, n_inputs=None):
     y_train = keras.utils.to_categorical(y_train, 10)
     y_test = keras.utils.to_categorical(y_test, 10)
 
-    if n_inputs:
-        x_train = x_train[:n_inputs]
-        y_train = y_train[:n_inputs]
-        x_test = x_test[:n_inputs]
-        y_test = y_test[:n_inputs]
+    if channels == "first":
+        x_train = x_train.reshape(x_train.shape[0], 1, img_rows, img_cols)
+        x_test = x_test.reshape(x_test.shape[0], 1, img_rows, img_cols)
 
+    elif channels == "last":
+        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 1)
+        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 1)
+    
+    input_shape = x_train.shape[1:]
     num_classes = 10
-    data_format = 'channels_last'
+    return x_train, y_train, x_test, y_test, input_shape, num_classes
 
-    print('x_train shape:', x_train.shape, '\nx_test shape:', x_test.shape)
-    return x_train, y_train, x_test, y_test, input_shape, num_classes, data_format
-
-
-def _onehot(integer_labels):
-    """Return matrix whose rows are onehot encodings of integers."""
+def labels_to_onehot(integer_labels):
     n_rows = len(integer_labels)
     n_cols = integer_labels.max() + 1
     onehot = np.zeros((n_rows, n_cols), dtype='uint8')
@@ -125,17 +106,15 @@ def onehot_to_labels(y):
     elif type(y) is torch.Tensor:
         return torch.max(y, 1)[1]
 
-def load_cifar(data_path, n_inputs=None):
-    """Return train_data, train_labels, test_data, test_labels
-    The shape of data is 32 x 32 x3"""
+def load_cifar(channels, img_rows=32, img_cols=32):
     x_train = None
     y_train = []
 
-    data_dir=str(data_path)+'cifar-10/'
+    data_dir="../cifar-10/"
 
-    for i in range(1, 6):
-        data_dic = unpickle(data_dir + "data_batch_{}".format(i))
-        if i == 1:
+    for batch in range(1, 6):
+        data_dic = unpickle(data_dir + "data_batch_{}".format(batch))
+        if batch == 1:
             x_train = data_dic['data']
         else:
             x_train = np.vstack((x_train, data_dic['data']))
@@ -145,33 +124,37 @@ def load_cifar(data_path, n_inputs=None):
     x_test = test_data_dic['data']
     y_test = test_data_dic['labels']
 
-    x_train = x_train.reshape((len(x_train), 3, 32, 32))
+    x_train = x_train.reshape((len(x_train), 3, img_rows, img_cols))
     x_train = np.rollaxis(x_train, 1, 4)
     y_train = np.array(y_train)
 
-    x_test = x_test.reshape((len(x_test), 3, 32, 32))
+    x_test = x_test.reshape((len(x_test), 3, img_rows, img_cols))
     x_test = np.rollaxis(x_test, 1, 4)
     y_test = np.array(y_test)
 
     input_shape = x_train.shape[1:]
-    num_classes = 10
-    data_format = 'channels_first'
 
     x_train = x_train.astype('float32')
     x_test = x_test.astype('float32')
     x_train /= 255
     x_test /= 255
 
-    if n_inputs:
-        x_train = x_train[:n_inputs]
-        y_train = y_train[:n_inputs]
-        x_test = x_test[:n_inputs]
-        y_test = y_test[:n_inputs]
+    if channels == "first":
+        x_train = x_train.reshape(x_train.shape[0], 3, img_rows, img_cols)
+        x_test = x_test.reshape(x_test.shape[0], 3, img_rows, img_cols)
 
-    return x_train, _onehot(y_train), x_test, _onehot(y_test), input_shape, num_classes, data_format
+    elif channels == "last":
+        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 3)
+        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 3)
 
+    y_train = labels_to_onehot(y_train)
+    y_test = labels_to_onehot(y_test)
 
-def load_dataset(dataset_name, data_path=DATA, n_inputs=None):
+    input_shape = x_train.shape[1:]
+    num_classes = 10
+    return x_train, y_train, x_test, y_test, input_shape, num_classes
+
+def load_dataset(dataset_name, channels, n_inputs=None):
     """
     Load dataset.
     :param dataset_name: choose between "mnist" and "cifar"
@@ -179,14 +162,22 @@ def load_dataset(dataset_name, data_path=DATA, n_inputs=None):
     """
 
     if dataset_name == "mnist":
-        return load_mnist(n_inputs=n_inputs)
+        x_train, y_train, x_test, y_test, input_shape, num_classes = load_mnist(channels)
     elif dataset_name == "cifar":
-        return load_cifar(data_path=data_path, n_inputs=n_inputs)
+        x_train, y_train, x_test, y_test, input_shape, num_classes = load_cifar(channels)
     elif dataset_name == "fashion_mnist":
-        return load_fashion_mnist(n_inputs=n_inputs)
+        x_train, y_train, x_test, y_test, input_shape, num_classes = load_fashion_mnist(channels)
     else:
-        raise ValueError("\nWrong dataset name.")
+        raise AssertionError("\nDataset not available.")
 
+    if n_inputs:
+        x_train, y_train, x_test, y_test = (x_train[:n_inputs], y_train[:n_inputs], 
+                                            x_test[:n_inputs], y_test[:n_inputs])
+
+    print('x_train shape =', x_train.shape, '\tx_test shape =', x_test.shape)
+    print('y_train shape =', y_train.shape, '\ty_test shape =', y_test.shape)
+
+    return x_train, y_train, x_test, y_test, input_shape, num_classes
 
 ############
 # pickling #
@@ -211,6 +202,12 @@ def load_from_pickle(path):
 
     return data
     
+
+def unpickle(file):
+    """ Load byte data from file"""
+    with open(file, 'rb') as f:
+        data = pkl.load(f, encoding='latin-1')
+    return data
 
 
 
