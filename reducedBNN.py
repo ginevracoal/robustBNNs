@@ -29,29 +29,37 @@ DEBUG=False
 
 class NN(nn.Module):
 
-	def __init__(self, dataset_name, input_size, output_size, hidden_size):
+	def __init__(self, dataset_name, input_shape, output_size, hidden_size):
 		super(NN, self).__init__()
 		self.dataset_name = dataset_name
-		self.input_size = input_size
 		self.hidden_size = hidden_size
-		self.output_size = output_size
-		self.fc1 = nn.Linear(input_size, hidden_size)
-		self.fc2 = nn.Linear(hidden_size, hidden_size)
-		self.fc3 = nn.Linear(hidden_size, hidden_size)
-		self.out = nn.Linear(hidden_size, output_size)
+		in_channels = input_shape[0]
+
+		if self.dataset_name == "mnist":
+			self.l1 = nn.Sequential(nn.Conv2d(in_channels, 32, kernel_size=5),
+									nn.LeakyReLU(),
+									nn.MaxPool2d(kernel_size=2))
+			self.l2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=5),
+									nn.LeakyReLU(),
+									nn.MaxPool2d(kernel_size=2))
+			self.out = nn.Linear(4*4*64, output_size)
+		else:
+			raise NotImplementedError()
 
 	def get_filename(self, dataset_name, epochs, lr):
 		return str(dataset_name)+"_nn_ep="+str(epochs)+"_lr="+str(lr)
 
-	def forward(self, inputs, device="cpu"):
-		x = inputs.to(device).view(-1, self.input_size)
-		x = self.fc1(x)
-		x = nn.LeakyReLU()(x)
-		x = self.fc2(x)
-		x = nn.LeakyReLU()(x)
-		x = self.fc3(x)
-		x = nn.LeakyReLU()(x)
-		x = self.out(x)
+	def forward(self, inputs):
+		x = inputs
+
+		if self.dataset_name == "mnist":
+			x = self.l1(x)
+			x = self.l2(x)
+			x = x.view(x.size(0), -1)
+			x = self.out(x)
+		else:
+			raise NotImplementedError()
+
 		output = nn.Softmax(dim=-1)(x)
 		return output
 
@@ -61,15 +69,21 @@ class NN(nn.Module):
 		print("\nSaving: ", TESTS+filename)
 		torch.save(self.state_dict(), TESTS+filename)
 
+		if DEBUG:
+			print("\nCheck saved weights:")
+			print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
+			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
+
 	def load(self, epochs, lr, rel_path=TESTS):
 		filename = self.get_filename(self.dataset_name, epochs, lr)+"_weights.pt"
 		print("\nLoading: ", rel_path+filename)
 		self.load_state_dict(torch.load(rel_path+filename))
-		
+		print("\n", list(self.state_dict().keys()), "\n")
+
 		if DEBUG:
-			print(self.state_dict().keys())
-			print(self.state_dict()["fc2.weight"])
-			print(self.state_dict()["out.weight"])
+			print("\nCheck loaded weights:")	
+			print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
+			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
 	def train(self, train_loader, epochs, lr, device="cpu"):
 		print("\n == NN training ==")
@@ -88,12 +102,12 @@ class NN(nn.Module):
 
 			for images, labels in train_loader:
 				n_inputs += len(images)
-				images = images.to(device).view(-1, self.input_size)
+				images = images.to(device)
 				labels = labels.to(device).argmax(-1)
 				total += labels.size(0)
 
 				optimizer.zero_grad()
-				outputs = self.forward(images).to(device)
+				outputs = self.forward(images)
 				loss = criterion(outputs, labels)
 				loss.backward()
 				optimizer.step()
@@ -103,7 +117,7 @@ class NN(nn.Module):
 				correct_predictions += (predictions == labels).sum()
 				accuracy = 100 * correct_predictions / len(train_loader.dataset)
 
-			# print(self.fc2.weight.data)
+			# print(self.l2.0.weight.data)
 
 			print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
 				  end="\t")
@@ -119,7 +133,7 @@ class NN(nn.Module):
 
 			for images, labels in test_loader:
 
-				images = images.to(device).view(-1, self.input_size)
+				images = images.to(device)
 				labels = labels.to(device).argmax(-1)
 				outputs = self(images)
 				predictions = outputs.argmax(dim=1)
@@ -132,39 +146,39 @@ class NN(nn.Module):
 
 class rBNN(nn.Module):
 
-	def __init__(self, dataset_name, input_size, hidden_size, output_size, inference, base_net):
+	def __init__(self, dataset_name, input_shape, hidden_size, output_size, inference, base_net):
 		super(rBNN, self).__init__()
 		self.dataset_name = dataset_name
-		self.input_size = input_size
-		self.hidden_size = hidden_size
-		self.output_size = output_size
 		self.inference = inference
 		self.net = base_net
-		self.return_all_preds = False # todo: refactor this
 
-	def get_filepath(self, dataset_name, epochs, lr, inference):
-		return str(dataset_name)+"_rBNN_ep="+str(epochs)+"_lr="+str(lr)+"_"+str(inference)+"/"
+	def get_filepath(self, epochs, lr):
+		return str(self.dataset_name)+"_rBNN_ep="+str(epochs)+"_lr="+str(lr)+"_"+str(self.inference)+"/"
 
-	def predict(self, x, n_samples=10):
+	# def predict(self, x, n_samples=10):
 
-		if self.inference == "svi":
+	# 	if self.inference == "svi":
 
-			sampled_models = [self.guide(None, None) for _ in range(n_samples)]
-			yhats = [model(x).data for model in sampled_models]
-			mean = torch.mean(torch.stack(yhats), 0)
-			return np.argmax(mean.numpy(), axis=1)
+	# 		sampled_models = [self.guide(None, None) for _ in range(n_samples)]
+	# 		yhats = [model(x).data for model in sampled_models]
+	# 		mean = torch.mean(torch.stack(yhats), 0)
+	# 		return np.argmax(mean.numpy(), axis=1)
 
 	def model(self, x_data, y_data):
 		net = self.net
 
 		if self.inference == "svi":
 
-			pyro.get_param_store()["module$$$fc1.weight"].requires_grad=False
-			pyro.get_param_store()["module$$$fc1.bias"].requires_grad=False
-			pyro.get_param_store()["module$$$fc2.weight"].requires_grad=False
-			pyro.get_param_store()["module$$$fc2.bias"].requires_grad=False
-			pyro.get_param_store()["module$$$fc3.weight"].requires_grad=False
-			pyro.get_param_store()["module$$$fc3.bias"].requires_grad=False
+			for weights_name in pyro.get_param_store():
+				if weights_name not in ["outw_mu","outw_sigma","outb_mu","outb_sigma"]:
+					pyro.get_param_store()[weights_name].requires_grad=False
+
+			# pyro.get_param_store()["module$$$l1.0.weight"].requires_grad=False
+			# pyro.get_param_store()["module$$$l1.0.bias"].requires_grad=False
+			# pyro.get_param_store()["module$$$fc2.weight"].requires_grad=False
+			# pyro.get_param_store()["module$$$fc2.bias"].requires_grad=False
+			# pyro.get_param_store()["module$$$fc3.weight"].requires_grad=False
+			# pyro.get_param_store()["module$$$fc3.bias"].requires_grad=False
 
 		outw_prior = Normal(loc=torch.zeros_like(net.out.weight), 
 			                scale=torch.ones_like(net.out.weight))
@@ -200,7 +214,7 @@ class rBNN(nn.Module):
  
 	def save(self, epochs, lr):
 
-		path = self.get_filepath(self.dataset_name, epochs, lr, self.inference)
+		path = self.get_filepath(epochs, lr)
 		filename = "weights"
 		os.makedirs(os.path.dirname(TESTS + path), exist_ok=True)
 
@@ -214,9 +228,8 @@ class rBNN(nn.Module):
 
 	def load(self, epochs, lr, rel_path=TESTS):
 
-		path = self.get_filepath(self.dataset_name, epochs, lr, self.inference)
+		path = rel_path+self.get_filepath(epochs, lr)
 		filename = "weights"
-		# self.net.load()
 
 		if self.inference == "svi":
 			param_store = pyro.get_param_store()
@@ -228,10 +241,13 @@ class rBNN(nn.Module):
 			self.posterior_samples = posterior_samples
 			print("\nLoading ", path + filename + ".pkl\n")
 
-
-	def forward(self, inputs, device="cpu", n_samples=50):
+	def forward(self, inputs, n_samples=10, device="cpu"):
 
 		if self.inference == "svi":
+
+			if DEBUG:
+				print("\nguide_trace =", list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
+
 			preds = []
 			for i in range(n_samples):
 				# pyro.set_rng_seed(i) # todo: debug
@@ -239,16 +255,16 @@ class rBNN(nn.Module):
 				preds.append(guide_trace.nodes['_RETURN']['value'])
 
 				if DEBUG:
-					print("\nguide_trace = ", guide_trace.nodes.keys())
-					print("\nmodule$$$fc2.weight", guide_trace.nodes['module$$$fc2.weight']['value'])
-					print("\noutw_mu", guide_trace.nodes['outw_mu']['value'][:3])
-					print("\nmodule$$$out.weight", 
-						  guide_trace.nodes['module$$$out.weight']['value'][0][:3])
-
-			pred = torch.stack(preds, dim=0)
-			return pred if self.return_all_preds else pred.mean(0) 
+					print("\nmodule$$$l2.0.weight shoud be fixed:\n", 
+						  guide_trace.nodes['module$$$l2.0.weight']['value'][0,0,:3])
+					print("\noutw_mu shoud be fixed:\n", guide_trace.nodes['outw_mu']['value'][:3])
+					print("\nmodule$$$out.weight shoud change:\n", 
+						  guide_trace.nodes['module$$$out.weight']['value'][0][:3]) 
 
 		elif self.inference == "hmc":
+
+			if DEBUG:
+				print("\nself.net.state_dict() keys = ", self.net.state_dict().keys())
 
 			preds = []
 			for i in range(n_samples-1):
@@ -260,28 +276,27 @@ class rBNN(nn.Module):
 				preds.append(self.net.forward(inputs))
 
 				if DEBUG:
-					print(self.net.state_dict().keys())
-					print(self.net.state_dict()["fc2.weight"][:3])
-					print(self.net.state_dict()["out.weight"][:3])	
+					print("\nl2.0.weight should be fixed:\n", 
+						  self.net.state_dict()["l2.0.weight"][0,0,:3])
+					print("\nout.weight should change:\n", self.net.state_dict()["out.weight"][0][:3])	
 		
-			pred = torch.stack(preds, dim=0)
-			return pred if self.return_all_preds else pred.mean(0) 
+		pred = torch.stack(preds, dim=0)
+		return pred.mean(0) 
 
 	def _train_hmc(self, train_loader, epochs, lr, device):
 		print("\n == rBNN HMC training ==")
-		self.net.load(epochs, lr)
 
 		hmc_kernel = HMC(self.model, step_size=0.0855, num_steps=4)
-		mcmc = MCMC(kernel=hmc_kernel, num_samples=50, warmup_steps=500, num_chains=1)
+		# hmc_kernel = NUTS(self.model)
+		mcmc = MCMC(kernel=hmc_kernel, num_samples=10, warmup_steps=10, num_chains=1)
 
 		start = time.time()
 		n_inputs = 0
 		for images, labels in train_loader:
 			n_inputs += len(images)
-			images = images.to(device).view(-1, self.input_size)
+			images = images.to(device)
 			labels = labels.to(device).argmax(-1)
 			mcmc.run(images.to(device), labels.to(device))
-			self.net.load()
 
 		execution_time(start=start, end=time.time())
 
@@ -289,15 +304,11 @@ class rBNN(nn.Module):
 		self.posterior_samples = mcmc_samples
 		self.save(epochs=epochs, lr=lr)
 
-		if DEBUG:
-			print("\nparam_store = ", pyro.get_param_store().get_all_param_names())
-			print(pyro.get_param_store()["module$$$fc2.weight"][:3])
-
 		return mcmc_samples
 
 	def _train_svi(self, train_loader, epochs, lr, device):
 		print("\n == rBNN SVI training ==")
-		self.net.load(epochs=epochs, lr=lr)
+		# self.net.load(epochs=epochs, lr=lr)
 
 		optimizer = pyro.optim.Adam({"lr": 0.001})
 		elbo = TraceMeanField_ELBO()
@@ -313,7 +324,7 @@ class rBNN(nn.Module):
 			n_inputs = 0
 			for images, labels in train_loader:
 				n_inputs += len(images)
-				images = images.to(device).view(-1, self.input_size)
+				images = images.to(device)
 				labels = labels.to(device).argmax(-1)
 				total += labels.size(0)
 
@@ -325,10 +336,10 @@ class rBNN(nn.Module):
 				correct_predictions += (predictions == labels).sum()
 				accuracy = 100 * correct_predictions / len(train_loader.dataset)
 
-			if DEBUG:
-				print("\nparam_store = ", pyro.get_param_store().get_all_param_names())
-				print(pyro.get_param_store()["module$$$fc2.weight"][:3])
-				print(pyro.get_param_store()["outw_mu"][:3])
+			# if DEBUG:
+			# 	print("\nmodule$$$l2.0.weight should be fixed:\n",
+			# 		  pyro.get_param_store()["module$$$l2.0.weight"][0][0][:3])
+			# 	print("\noutw_mu should change:\n", pyro.get_param_store()["outw_mu"][:3])
 
 			print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
 				  end="\t")
@@ -353,7 +364,7 @@ class rBNN(nn.Module):
 
 			for images, labels in test_loader:
 
-				images = images.to(device).view(-1, self.input_size)
+				images = images.to(device)
 				labels = labels.to(device).argmax(-1)
 				outputs = self.forward(images)
 				predictions = outputs.argmax(dim=1)
@@ -365,19 +376,19 @@ class rBNN(nn.Module):
 
 
 def main(args):
-	train_loader, test_loader, inp_size, out_size = \
+	train_loader, test_loader, inp_shape, out_size = \
 							data_loaders(dataset_name=args.dataset, batch_size=128, 
 										 n_inputs=args.inputs, shuffle=True)
 
-	nn = NN(dataset_name=args.dataset, input_size=inp_size, output_size=out_size, 
+	nn = NN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
 			hidden_size=args.hidden_size)
 
-	nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
-	# nn.load(epochs=args.epochs, lr=args.lr)
+	# nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
+	nn.load(epochs=args.epochs, lr=args.lr)
 
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
-	bnn = rBNN(dataset_name=args.dataset, input_size=inp_size, output_size=out_size, 
+	bnn = rBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
 		       hidden_size=args.hidden_size, inference=args.inference, base_net=nn)
 
 	bnn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
@@ -412,13 +423,13 @@ def main(args):
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
-    parser = argparse.ArgumentParser(description="")
+    parser = argparse.ArgumentParser(description="reduced BNN")
 
     parser.add_argument("--inputs", nargs="?", default=100, type=int)
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
-    parser.add_argument("--epochs", nargs='?', default=100, type=int)
+    parser.add_argument("--epochs", nargs='?', default=10, type=int)
     parser.add_argument("--lr", nargs='?', default=0.001, type=float)
-    parser.add_argument("--hidden_size", nargs='?', default=512, type=int)
+    parser.add_argument("--hidden_size", nargs='?', default=128, type=int)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')	
 
