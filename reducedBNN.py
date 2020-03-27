@@ -84,9 +84,10 @@ class NN(nn.Module):
 			print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
 			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-	def train(self, train_loader, epochs, lr, device="cpu"):
+	def train(self, train_loader, epochs, lr, device):
 		print("\n == NN training ==")
 		random.seed(0)
+		self.to(device)
 
 		criterion = nn.CrossEntropyLoss()
 		optimizer = torchopt.Adam(params=self.parameters(), lr=0.001)
@@ -125,7 +126,7 @@ class NN(nn.Module):
 		self.save(epochs=epochs, lr=lr)
 
 	def evaluate(self, test_loader, device):
-
+		self.to(device)
 		with torch.no_grad():
 
 			correct_predictions = 0.0
@@ -240,7 +241,7 @@ class rBNN(nn.Module):
 			self.posterior_samples = posterior_samples
 			print("\nLoading ", path + filename + ".pkl\n")
 
-	def forward(self, inputs, n_samples=10, device="cpu"):
+	def forward(self, inputs, n_samples=30, device="cpu"):
 
 		if self.inference == "svi":
 
@@ -347,6 +348,7 @@ class rBNN(nn.Module):
 		self.save(epochs=epochs, lr=lr)
 
 	def train(self, train_loader, epochs, lr, device):
+		self.to(device)
 
 		if self.inference == "svi":
 			self._train_svi(train_loader, epochs, lr, device)
@@ -379,12 +381,12 @@ def main(args):
 							data_loaders(dataset_name=args.dataset, batch_size=128, 
 										 n_inputs=args.inputs, shuffle=True)
 
-	nn = NN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size)
+	# dataset, epochs, lr, rel_path = (args.dataset, args.epochs, args.lr, TESTS)
+	dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)		
 
-	nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
-	nn.load(epochs=args.epochs, lr=args.lr)
-	exit()
-
+	nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
+	# nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
+	nn.load(epochs=epochs, lr=lr, rel_path=rel_path)
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
 	bnn = rBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
