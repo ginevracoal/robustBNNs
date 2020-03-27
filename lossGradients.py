@@ -5,10 +5,10 @@ import argparse
 from tqdm import tqdm
 import torch
 import copy
-from utils import save_to_pickle, load_from_pickle, _onehot
+from utils import save_to_pickle, load_from_pickle, data_loaders
 import numpy as np
 import pyro
-from reducedBNN import *
+from reducedBNN import NN, redBNN
 
 
 DEBUG=False
@@ -19,20 +19,19 @@ def get_filename(inference, n_inputs, n_samples):
 
 def loss_gradient(bnn, n_samples, image, label, device):
 
-    input_size = image.size(0) * image.size(1) * image.size(2)
-    image = image.view(-1, input_size).to(device)
-    label = label.to(device).argmax(-1).view(-1)
+    image = image.unsqueeze(0)
+    label = label.to(device).argmax(-1).unsqueeze(0)
 
     x_copy = copy.deepcopy(image)
-    bnn_copy = copy.deepcopy(bnn)
-
     x_copy.requires_grad = True
+
+    bnn_copy = copy.deepcopy(bnn)
     output = bnn_copy.forward(inputs=x_copy, n_samples=n_samples, device=device)
     loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
     bnn_copy.zero_grad()
+
     loss.backward()
     loss_gradient = copy.deepcopy(x_copy.grad.data[0])
-
     return loss_gradient
 
 
@@ -66,6 +65,8 @@ def loss_gradients(bnn, n_samples, data_loader, device, filepath):
 def load_loss_gradients(inference, n_inputs, n_samples, filepath, relpath=DATA):
     filename = get_filename(inference, n_inputs, n_samples)
     return load_from_pickle(path=relpath+filepath+filename).squeeze()
+
+# todo: refactor
 
 # def compute_vanishing_grads_idxs(loss_gradients, n_samples_list):
 #     if loss_gradients.shape[1] != len(n_samples_list):
@@ -114,50 +115,28 @@ def load_loss_gradients(inference, n_inputs, n_samples, filepath, relpath=DATA):
 #     print("\nconst_null_idxs = ", const_null_idxs)
 #     return const_null_idxs
 
-# def categorical_loss_gradients_norms(loss_gradients, n_samples_list, dataset_name, model_idx):
-#     loss_gradients = np.array(np.transpose(loss_gradients, (1,0,2)))
-
-#     if loss_gradients.shape[1] != len(n_samples_list):
-#         raise ValueError("Second dimension should equal the length of `n_samples_list`")
-
-#     vanishing_idxs = compute_vanishing_grads_idxs(loss_gradients, n_samples_list)
-#     const_null_idxs = compute_constantly_null_grads(loss_gradients, n_samples_list)
-
-#     loss_gradients_norms_categories = []
-#     for image_idx in range(len(loss_gradients)):
-#         if image_idx in vanishing_idxs:
-#             loss_gradients_norms_categories.append("vanishing")
-#         elif image_idx in const_null_idxs:
-#             loss_gradients_norms_categories.append("const_null")
-#         else:
-#             loss_gradients_norms_categories.append("other")
-
-#     filename = str(dataset_name)+"_bnn_inputs="+str(len(loss_gradients))+\
-#                "_samples="+str(n_samples_list)+"_cat_lossGrads_norms"+str(model_idx)+".pkl"
-#     save_to_pickle(data=loss_gradients_norms_categories, relative_path=RESULTS, filename=filename)
-#     return {"categories":loss_gradients_norms_categories}
-
 
 def main(args):
 
-    _, test_loader, inp_size, out_size = \
-        data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs)
+    _, test_loader, inp_shape, out_size = \
+        data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs, shuffle=True)
 
-    # load base network
-    nn = NN(dataset_name=args.dataset, input_size=inp_size, output_size=out_size, 
-            hidden_size=args.hidden_size)
-    nn.load(epochs=args.epochs, lr=args.lr)
+    # === load base NN ===
+    dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)    
+    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
+    nn.load(epochs=epochs, lr=lr, rel_path=rel_path)
 
-    # load reduced BNN
-    bnn = rBNN(dataset_name=args.dataset, input_size=inp_size, output_size=out_size, 
-               hidden_size=args.hidden_size, inference=args.inference, base_net=nn)
-    bnn.load(epochs=args.epochs, lr=args.lr)
-
-    # compute expected loss gradients
-    filepath = bnn.get_filepath(epochs=args.epochs, lr=args.lr)
-    loss_gradients(bnn=bnn, n_samples=args.samples, data_loader=test_loader, 
-                            device=args.device, filepath=filepath)
-
+    # === load reduced BNN ===
+    bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
+                 inference=args.inference, base_net=nn)
+    hyperparams = bnn.get_hyperparams(args)
+    bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS)
+    
+    # === compute loss gradients ===
+    for posterior_samples in [1,5,10]:
+        filepath = bnn.get_filename(n_inputs=args.inputs, hyperparams=hyperparams)+"/"
+        loss_gradients(bnn=bnn, n_samples=posterior_samples, data_loader=test_loader, 
+                       device=args.device, filepath=filepath)
 
 
 if __name__ == "__main__":
@@ -166,11 +145,11 @@ if __name__ == "__main__":
 
     parser.add_argument("--inputs", nargs="?", default=100, type=int)
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
-    parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--lr", nargs='?', default=0.001, type=float)
-    parser.add_argument("--hidden_size", nargs='?', default=512, type=int)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
-    parser.add_argument("--samples", nargs='?', default=5, type=int)
+    parser.add_argument("--epochs", nargs='?', default=10, type=int)
+    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
+    parser.add_argument("--warmup", nargs='?', default=10, type=int)
+    parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')   
 
     main(args=parser.parse_args())
