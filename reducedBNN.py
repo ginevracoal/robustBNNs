@@ -144,16 +144,33 @@ class NN(nn.Module):
 			return accuracy
 
 
-class rBNN(nn.Module):
+class redBNN(nn.Module):
 
 	def __init__(self, dataset_name, input_shape, output_size, inference, base_net):
-		super(rBNN, self).__init__()
+		super(redBNN, self).__init__()
 		self.dataset_name = dataset_name
 		self.inference = inference
 		self.net = base_net
 
-	def get_filepath(self, epochs, lr):
-		return str(self.dataset_name)+"_rBNN_ep="+str(epochs)+"_lr="+str(lr)+"_"+str(self.inference)+"/"
+	def get_hyperparams(self, args):
+
+		if self.inference == "svi":
+			return {"epochs":args.epochs, "lr":args.lr}
+
+		elif self.inference == "hmc":
+			return {"hmc_samples":args.hmc_samples, "warmup":args.warmup}
+
+	def get_filename(self, n_inputs, hyperparams):
+
+		if self.inference == "svi":
+			return str(self.dataset_name)+"_redBNN_inp="+str(n_inputs)+"_ep="+\
+			       str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])+"_"+\
+			       str(self.inference)
+
+		elif self.inference == "hmc":
+			return str(self.dataset_name)+"_redBNN_inp="+str(n_inputs)+"_samp="+\
+			       str(hyperparams["hmc_samples"])+"_warm="+str(hyperparams["warmup"])+\
+			       "_"+str(self.inference)
 
 	# def predict(self, x, n_samples=10):
 
@@ -168,17 +185,9 @@ class rBNN(nn.Module):
 		net = self.net
 
 		if self.inference == "svi":
-
 			for weights_name in pyro.get_param_store():
 				if weights_name not in ["outw_mu","outw_sigma","outb_mu","outb_sigma"]:
 					pyro.get_param_store()[weights_name].requires_grad=False
-
-			# pyro.get_param_store()["module$$$l1.0.weight"].requires_grad=False
-			# pyro.get_param_store()["module$$$l1.0.bias"].requires_grad=False
-			# pyro.get_param_store()["module$$$fc2.weight"].requires_grad=False
-			# pyro.get_param_store()["module$$$fc2.bias"].requires_grad=False
-			# pyro.get_param_store()["module$$$fc3.weight"].requires_grad=False
-			# pyro.get_param_store()["module$$$fc3.bias"].requires_grad=False
 
 		outw_prior = Normal(loc=torch.zeros_like(net.out.weight), 
 			                scale=torch.ones_like(net.out.weight))
@@ -212,24 +221,28 @@ class rBNN(nn.Module):
 		logits = F.log_softmax(lifted_module(x_data), dim=-1)
 		return logits
  
-	def save(self, epochs, lr):
+	def save(self, n_inputs, hyperparams):
 
-		path = self.get_filepath(epochs, lr)
-		filename = "weights"
-		os.makedirs(os.path.dirname(TESTS + path), exist_ok=True)
+		path = TESTS + self.get_filename(n_inputs, hyperparams)+"/"
+		filename = self.get_filename(n_inputs, hyperparams)+"_weights"
+		os.makedirs(os.path.dirname(path), exist_ok=True)
 
 		if self.inference == "svi":
+			self.net.to("cpu")
+			self.to("cpu")
 			param_store = pyro.get_param_store()
 			print(f"\nlearned params = {param_store.get_all_param_names()}")
-			param_store.save(TESTS + path + filename +".pt")
+			param_store.save(path + filename +".pt")
 
 		elif self.inference == "hmc":
+			self.net.to("cpu")
+			self.to("cpu")
 			save_to_pickle(data=self.posterior_samples, path=path, filename=filename+".pkl")
 
-	def load(self, epochs, lr, rel_path=TESTS):
+	def load(self, n_inputs, hyperparams, rel_path=TESTS):
 
-		path = rel_path+self.get_filepath(epochs, lr)
-		filename = "weights"
+		path = rel_path+self.get_filename(n_inputs, hyperparams)+"/"
+		filename = self.get_filename(n_inputs, hyperparams)+"_weights"
 
 		if self.inference == "svi":
 			param_store = pyro.get_param_store()
@@ -283,12 +296,14 @@ class rBNN(nn.Module):
 		pred = torch.stack(preds, dim=0)
 		return pred.mean(0) 
 
-	def _train_hmc(self, train_loader, epochs, lr, device):
-		print("\n == rBNN HMC training ==")
+	def _train_hmc(self, train_loader, hyperparams, device):
+		print("\n == redBNN HMC training ==")
+
+		num_samples, warmup_steps = (hyperparams["hmc_samples"], hyperparams["warmup"])
 
 		hmc_kernel = HMC(self.model, step_size=0.0855, num_steps=4)
 		# hmc_kernel = NUTS(self.model)
-		mcmc = MCMC(kernel=hmc_kernel, num_samples=10, warmup_steps=10, num_chains=1)
+		mcmc = MCMC(kernel=hmc_kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
 
 		start = time.time()
 		n_inputs = 0
@@ -302,15 +317,16 @@ class rBNN(nn.Module):
 
 		mcmc_samples = mcmc.get_samples()
 		self.posterior_samples = mcmc_samples
-		self.save(epochs=epochs, lr=lr)
+		self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
 
 		return mcmc_samples
 
-	def _train_svi(self, train_loader, epochs, lr, device):
-		print("\n == rBNN SVI training ==")
-		# self.net.load(epochs=epochs, lr=lr)
+	def _train_svi(self, train_loader, hyperparams, device):
+		print("\n == redBNN SVI training ==")
 
-		optimizer = pyro.optim.Adam({"lr": 0.001})
+		epochs, lr = hyperparams["epochs"], hyperparams["lr"]
+
+		optimizer = pyro.optim.Adam({"lr":lr})
 		elbo = TraceMeanField_ELBO()
 		svi = SVI(self.model, self.guide, optimizer, loss=elbo)
 
@@ -345,17 +361,18 @@ class rBNN(nn.Module):
 				  end="\t")
 
 		execution_time(start=start, end=time.time())
-		self.save(epochs=epochs, lr=lr)
 
-	def train(self, train_loader, epochs, lr, device):
+		hyperparams = {"epochs":epochs, "lr":lr}	
+		self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
+
+	def train(self, train_loader, hyperparams, device):
 		self.to(device)
 
 		if self.inference == "svi":
-			self._train_svi(train_loader, epochs, lr, device)
-		elif self.inference == "hmc":
-			self._train_hmc(train_loader, epochs, lr, device)
+			self._train_svi(train_loader, hyperparams, device)
 
-		# todo: add loss accuracy plot
+		elif self.inference == "hmc":
+			self._train_hmc(train_loader, hyperparams, device)
 
 	def evaluate(self, test_loader, device):
 
@@ -377,50 +394,30 @@ class rBNN(nn.Module):
 
 
 def main(args):
+
+	# === load dataset ===
 	train_loader, test_loader, inp_shape, out_size = \
 							data_loaders(dataset_name=args.dataset, batch_size=128, 
 										 n_inputs=args.inputs, shuffle=True)
+	# === base NN ===
 
-	# dataset, epochs, lr, rel_path = (args.dataset, args.epochs, args.lr, TESTS)
-	dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)		
+	# dataset, epochs, lr, rel_path = (args.dataset, args.epochs, args.lr, TESTS)		
+	dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)	
 
 	nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
 	# nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
 	nn.load(epochs=epochs, lr=lr, rel_path=rel_path)
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
-	bnn = rBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-		       inference=args.inference, base_net=nn)
+	# === reducedBNN ===
 
-	bnn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
-	# bnn.load(epochs=args.epochs, n_inputs=args.n_inputs, inference=args.inference)
-
+	bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
+		         inference=args.inference, base_net=nn)
+	hyperparams = bnn.get_hyperparams(args)
+	# bnn.train(train_loader=train_loader, hyperparams=hyperparams, device=args.device)
+	bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS)
 	bnn.evaluate(test_loader=test_loader, device=args.device)
-
-	# n_samples_list = [5,10,50]
-
-	# bnn.return_all_preds = True
-	# for n_samples in n_samples_list:
-	# 	expected_loss_gradients(posterior=bnn, n_samples=n_samples, dataset_name=args.dataset,
-	# 				            model_idx=model_idx, data_loader=test_loader, device=args.device, 
-	# 				            mode="vi")
-
-	# exp_loss_gradients = []
-	# for n_samples in n_samples_list:
-	# 	exp_loss_gradients.append(load_loss_gradients(dataset_name=args.dataset, 
-	# 						n_inputs=len(test_loader.dataset), 
-	# 						n_samples=n_samples, model_idx=model_idx, relpath TESTS))
-
-	# plot_single_images_vanishing_gradients(loss_gradients=exp_loss_gradients, n_samples_list=n_samples_list,
-	#            fig_idx="_model="+str(0)+"_samples="+str(n_samples_list))
-
-	# plot_exp_loss_gradients_norms(loss_gradients=exp_loss_gradients, n_inputs=args.inputs,
-	# 					n_samples_list=n_samples_list,  dataset_name=args.dataset, model_idx=model_idx)
-
-	# plot_gradient_components(n_inputs=len(test_loader.dataset), n_samples_list=n_samples_list, 
-	# 	                     relpath TESTS, model_idx=model_idx, dataset_name=args.dataset,
-	# 	                     loss_gradients=exp_loss_gradients)
-   
+	
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
@@ -428,9 +425,11 @@ if __name__ == "__main__":
 
     parser.add_argument("--inputs", nargs="?", default=100, type=int)
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
-    parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
+    parser.add_argument("--epochs", nargs='?', default=10, type=int)
+    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
+    parser.add_argument("--warmup", nargs='?', default=10, type=int)
+    parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')	
 
     main(args=parser.parse_args())
