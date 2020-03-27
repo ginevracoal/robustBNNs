@@ -1,8 +1,9 @@
 #!/bin/bash
 
 INPUTS="60000"
-EPOCHS=150
 DATASET="mnist"
+EPOCHS=150
+LR=0.002
 INFERENCE="svi"
 DEVICE="cpu"
 
@@ -15,6 +16,6 @@ RESULTS="../results/$DATE/"
 mkdir -p $RESULTS
 OUT="${RESULTS}${TIME}_out.txt"
 
-python3 reducedBNN.py --inputs=$INPUTS --epochs=$EPOCHS --dataset=$DATASET --inference=$INFERENCE --device=$DEVICE &> $OUT
+python3 reducedBNN.py --inputs=$INPUTS --dataset=$DATASET --epochs=$EPOCHS --lr=$LR --inference=$INFERENCE --device=$DEVICE &> $OUT
 
 deactivate

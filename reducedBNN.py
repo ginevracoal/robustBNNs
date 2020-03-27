@@ -29,10 +29,9 @@ DEBUG=False
 
 class NN(nn.Module):
 
-	def __init__(self, dataset_name, input_shape, output_size, hidden_size):
+	def __init__(self, dataset_name, input_shape, output_size):
 		super(NN, self).__init__()
 		self.dataset_name = dataset_name
-		self.hidden_size = hidden_size
 		in_channels = input_shape[0]
 
 		if self.dataset_name == "mnist":
@@ -146,7 +145,7 @@ class NN(nn.Module):
 
 class rBNN(nn.Module):
 
-	def __init__(self, dataset_name, input_shape, hidden_size, output_size, inference, base_net):
+	def __init__(self, dataset_name, input_shape, output_size, inference, base_net):
 		super(rBNN, self).__init__()
 		self.dataset_name = dataset_name
 		self.inference = inference
@@ -380,16 +379,16 @@ def main(args):
 							data_loaders(dataset_name=args.dataset, batch_size=128, 
 										 n_inputs=args.inputs, shuffle=True)
 
-	nn = NN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-			hidden_size=args.hidden_size)
+	nn = NN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size)
 
-	# nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
+	nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
 	nn.load(epochs=args.epochs, lr=args.lr)
+	exit()
 
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
 	bnn = rBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-		       hidden_size=args.hidden_size, inference=args.inference, base_net=nn)
+		       inference=args.inference, base_net=nn)
 
 	bnn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
 	# bnn.load(epochs=args.epochs, n_inputs=args.n_inputs, inference=args.inference)
@@ -429,7 +428,6 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
     parser.add_argument("--epochs", nargs='?', default=10, type=int)
     parser.add_argument("--lr", nargs='?', default=0.001, type=float)
-    parser.add_argument("--hidden_size", nargs='?', default=128, type=int)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')	
 
