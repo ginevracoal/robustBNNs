@@ -2,7 +2,6 @@ import argparse
 import os
 from directories import *
 from utils import *
-
 import pyro
 import torch
 from torch import nn
@@ -221,6 +220,7 @@ class redBNN(nn.Module):
 			self.net.to("cpu")
 			self.to("cpu")
 			param_store = pyro.get_param_store()
+			print("\nSaving: ", path + filename +".pt")
 			print(f"\nlearned params = {param_store.get_all_param_names()}")
 			param_store.save(path + filename +".pt")
 
@@ -361,6 +361,7 @@ class redBNN(nn.Module):
 	def train(self, train_loader, hyperparams, device):
 		self.to(device)
 		self.net.to(device)
+		pyro.set_rng_seed(0)
 
 		if self.inference == "svi":
 			self._train_svi(train_loader, hyperparams, device)
