@@ -1,6 +1,7 @@
 import argparse
 import os
 from directories import *
+from utils import *
 
 import pyro
 import torch
@@ -12,14 +13,10 @@ import torch.optim as torchopt
 from pyro import poutine
 import pyro.optim as pyroopt
 import torch.nn.functional as F
-from pyro.infer.mcmc import MCMC, HMC
+from pyro.infer.mcmc import MCMC, HMC, NUTS
 from pyro.infer.mcmc.util import predictive
 from pyro.infer.abstract_infer import TracePredictive
 from pyro.distributions import OneHotCategorical, Normal, Categorical
-
-from utils import *
-# from lossGradients import expected_loss_gradients
-
 
 softplus = torch.nn.Softplus()
 
@@ -73,11 +70,12 @@ class NN(nn.Module):
 			print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
 			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-	def load(self, epochs, lr, rel_path=TESTS):
+	def load(self, epochs, lr, device, rel_path=TESTS):
 		filename = self.get_filename(self.dataset_name, epochs, lr)+"_weights.pt"
 		print("\nLoading: ", rel_path+filename)
 		self.load_state_dict(torch.load(rel_path+filename))
 		print("\n", list(self.state_dict().keys()), "\n")
+		self.to(device)
 
 		if DEBUG:
 			print("\nCheck loaded weights:")	
@@ -127,6 +125,7 @@ class NN(nn.Module):
 
 	def evaluate(self, test_loader, device):
 		self.to(device)
+
 		with torch.no_grad():
 
 			correct_predictions = 0.0
@@ -157,8 +156,8 @@ class redBNN(nn.Module):
 		if self.inference == "svi":
 			return {"epochs":args.epochs, "lr":args.lr}
 
-		elif self.inference == "hmc":
-			return {"hmc_samples":args.hmc_samples, "warmup":args.warmup}
+		elif self.inference == "mcmc":
+			return {"mcmc_samples":args.mcmc_samples, "warmup":args.warmup}
 
 	def get_filename(self, n_inputs, hyperparams):
 
@@ -167,19 +166,10 @@ class redBNN(nn.Module):
 			       str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])+"_"+\
 			       str(self.inference)
 
-		elif self.inference == "hmc":
+		elif self.inference == "mcmc":
 			return str(self.dataset_name)+"_redBNN_inp="+str(n_inputs)+"_samp="+\
-			       str(hyperparams["hmc_samples"])+"_warm="+str(hyperparams["warmup"])+\
+			       str(hyperparams["mcmc_samples"])+"_warm="+str(hyperparams["warmup"])+\
 			       "_"+str(self.inference)
-
-	# def predict(self, x, n_samples=10):
-
-	# 	if self.inference == "svi":
-
-	# 		sampled_models = [self.guide(None, None) for _ in range(n_samples)]
-	# 		yhats = [model(x).data for model in sampled_models]
-	# 		mean = torch.mean(torch.stack(yhats), 0)
-	# 		return np.argmax(mean.numpy(), axis=1)
 
 	def model(self, x_data, y_data):
 		net = self.net
@@ -234,12 +224,12 @@ class redBNN(nn.Module):
 			print(f"\nlearned params = {param_store.get_all_param_names()}")
 			param_store.save(path + filename +".pt")
 
-		elif self.inference == "hmc":
+		elif self.inference == "mcmc":
 			self.net.to("cpu")
 			self.to("cpu")
 			save_to_pickle(data=self.posterior_samples, path=path, filename=filename+".pkl")
 
-	def load(self, n_inputs, hyperparams, rel_path=TESTS):
+	def load(self, n_inputs, hyperparams, device, rel_path=TESTS):
 
 		path = rel_path+self.get_filename(n_inputs, hyperparams)+"/"
 		filename = self.get_filename(n_inputs, hyperparams)+"_weights"
@@ -249,12 +239,15 @@ class redBNN(nn.Module):
 			param_store.load(path + filename + ".pt")
 			print("\nLoading ", path + filename + ".pt\n")
 
-		elif self.inference == "hmc":
+		elif self.inference == "mcmc":
 			posterior_samples = load_from_pickle(path + filename + ".pkl")
 			self.posterior_samples = posterior_samples
 			print("\nLoading ", path + filename + ".pkl\n")
 
-	def forward(self, inputs, n_samples=30, device="cpu"):
+		self.to(device)
+		self.net.to(device)
+
+	def forward(self, inputs, n_samples=30):
 
 		if self.inference == "svi":
 
@@ -274,7 +267,7 @@ class redBNN(nn.Module):
 					print("\nmodule$$$out.weight shoud change:\n", 
 						  guide_trace.nodes['module$$$out.weight']['value'][0][:3]) 
 
-		elif self.inference == "hmc":
+		elif self.inference == "mcmc":
 
 			if DEBUG:
 				print("\nself.net.state_dict() keys = ", self.net.state_dict().keys())
@@ -296,14 +289,14 @@ class redBNN(nn.Module):
 		pred = torch.stack(preds, dim=0)
 		return pred.mean(0) 
 
-	def _train_hmc(self, train_loader, hyperparams, device):
-		print("\n == redBNN HMC training ==")
+	def _train_mcmc(self, train_loader, hyperparams, device):
+		print("\n == redBNN MCMC training ==")
 
-		num_samples, warmup_steps = (hyperparams["hmc_samples"], hyperparams["warmup"])
+		num_samples, warmup_steps = (hyperparams["mcmc_samples"], hyperparams["warmup"])
 
-		hmc_kernel = HMC(self.model, step_size=0.0855, num_steps=4)
-		# hmc_kernel = NUTS(self.model)
-		mcmc = MCMC(kernel=hmc_kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
+		# kernel = HMC(self.model, step_size=0.0855, num_steps=4)
+		kernel = NUTS(self.model)
+		mcmc = MCMC(kernel=kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
 
 		start = time.time()
 		n_inputs = 0
@@ -367,14 +360,17 @@ class redBNN(nn.Module):
 
 	def train(self, train_loader, hyperparams, device):
 		self.to(device)
+		self.net.to(device)
 
 		if self.inference == "svi":
 			self._train_svi(train_loader, hyperparams, device)
 
-		elif self.inference == "hmc":
-			self._train_hmc(train_loader, hyperparams, device)
+		elif self.inference == "mcmc":
+			self._train_mcmc(train_loader, hyperparams, device)
 
 	def evaluate(self, test_loader, device):
+		self.to(device)
+		self.net.to(device)
 
 		with torch.no_grad():
 
@@ -406,7 +402,7 @@ def main(args):
 
 	nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
 	# nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
-	nn.load(epochs=epochs, lr=lr, rel_path=rel_path)
+	nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
 	# === reducedBNN ===
@@ -414,8 +410,8 @@ def main(args):
 	bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
 		         inference=args.inference, base_net=nn)
 	hyperparams = bnn.get_hyperparams(args)
-	# bnn.train(train_loader=train_loader, hyperparams=hyperparams, device=args.device)
-	bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS)
+	bnn.train(train_loader=train_loader, hyperparams=hyperparams, device=args.device)
+	# bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
 	bnn.evaluate(test_loader=test_loader, device=args.device)
 	
 
@@ -427,7 +423,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
     parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
+    parser.add_argument("--mcmc_samples", nargs='?', default=30, type=int)
     parser.add_argument("--warmup", nargs='?', default=10, type=int)
     parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')	

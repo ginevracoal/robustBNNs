@@ -9,7 +9,7 @@ from utils import save_to_pickle, load_from_pickle, data_loaders
 import numpy as np
 import pyro
 from reducedBNN import NN, redBNN
-
+    
 
 DEBUG=False
 
@@ -147,7 +147,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
     parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
+    parser.add_argument("--mcmc_samples", nargs='?', default=30, type=int)
     parser.add_argument("--warmup", nargs='?', default=10, type=int)
     parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')   
