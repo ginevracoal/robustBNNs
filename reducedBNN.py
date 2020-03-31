@@ -28,6 +28,7 @@ class NN(nn.Module):
 	def __init__(self, dataset_name, input_shape, output_size):
 		super(NN, self).__init__()
 		self.dataset_name = dataset_name
+		self.criterion = nn.CrossEntropyLoss()
 		in_channels = input_shape[0]
 
 		if self.dataset_name == "mnist":
@@ -86,7 +87,6 @@ class NN(nn.Module):
 		random.seed(0)
 		self.to(device)
 
-		criterion = nn.CrossEntropyLoss()
 		optimizer = torchopt.Adam(params=self.parameters(), lr=0.001)
 
 		start = time.time()
@@ -105,7 +105,7 @@ class NN(nn.Module):
 
 				optimizer.zero_grad()
 				outputs = self.forward(images)
-				loss = criterion(outputs, labels)
+				loss = self.criterion(outputs, labels)
 				loss.backward()
 				optimizer.step()
 
