@@ -174,8 +174,8 @@ def load_dataset(dataset_name, channels, n_inputs=None):
         x_train, y_train, x_test, y_test = (x_train[:n_inputs], y_train[:n_inputs], 
                                             x_test[:n_inputs], y_test[:n_inputs])
 
-    print('x_train shape =', x_train.shape, '\tx_test shape =', x_test.shape)
-    print('y_train shape =', y_train.shape, '\ty_test shape =', y_test.shape)
+    print('x_train shape =', x_train.shape, '\nx_test shape =', x_test.shape)
+    print('y_train shape =', y_train.shape, '\ny_test shape =', y_test.shape)
 
     return x_train, y_train, x_test, y_test, input_shape, num_classes
 
