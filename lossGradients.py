@@ -13,10 +13,28 @@ from reducedBNN import NN, redBNN
 DEBUG=False
 
 
-def loss_gradient(bnn, n_samples, image, label, device):
 
-    image = image.to(device).unsqueeze(0)
-    label = label.to(device).argmax(-1).unsqueeze(0)
+def nn_loss_gradient(nn, image, label):
+
+    image = image.unsqueeze(0)
+    label = label.argmax(-1).unsqueeze(0)
+
+    x_copy = copy.deepcopy(image)
+    x_copy.requires_grad = True
+
+    nn_copy = copy.deepcopy(nn)
+    output = nn_copy.forward(inputs=x_copy)
+    loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
+    bnn_copy.zero_grad()
+
+    loss.backward()
+    loss_gradient = copy.deepcopy(x_copy.grad.data[0])
+    return loss_gradient
+
+def bnn_loss_gradient(bnn, n_samples, image, label):
+
+    image = image.unsqueeze(0)
+    label = label.argmax(-1).unsqueeze(0)
 
     x_copy = copy.deepcopy(image)
     x_copy.requires_grad = True
@@ -38,8 +56,8 @@ def loss_gradients(bnn, n_samples, data_loader, device, filename):
     loss_gradients = []
     for images, labels in tqdm(data_loader):
         for i in range(len(images)):
-            loss_gradients.append(loss_gradient(bnn=bnn, n_samples=n_samples, 
-                                      image=images[i], label=labels[i], device=device))
+            loss_gradients.append(bnn_loss_gradient(bnn=bnn, n_samples=n_samples, 
+                                  image=images[i].to(device), label=labels[i].to(device)))
 
     loss_gradients = torch.stack(loss_gradients)
     print(f"\nexp_mean = {loss_gradients.mean()} \t exp_std = {loss_gradients.std()}")
