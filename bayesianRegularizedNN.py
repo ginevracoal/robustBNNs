@@ -9,7 +9,7 @@ from reducedBNN import NN
 import torch.nn.functional as nnf
 import numpy as np
 from pyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
-import torch.optim as torc hopt
+import torch.optim as torchopt
 from pyro import poutine
 import pyro.optim as pyroopt
 import torch.nn.functional as F
@@ -17,7 +17,8 @@ from pyro.infer.mcmc import MCMC, HMC, NUTS
 from pyro.infer.mcmc.util import predictive
 from pyro.infer.abstract_infer import TracePredictive
 from pyro.distributions import OneHotCategorical, Normal, Categorical
-from lossGradients import loss_gradient
+import copy
+
 
 softplus = torch.nn.Softplus()
 
@@ -26,38 +27,53 @@ DEBUG=False
 
 
 def regularized_cross_entropy(net, x, y, lam):
-	# y = one hot encoding
-	log_prob = -1.0 * F.log_softmax(x, 1)
-	loss = log_prob.gather(1, y.unsqueeze(1))
+	x_copy = copy.deepcopy(x)
+	print("x_clone", x_copy.shape)
+	x_copy.requires_grad = True
+	log_prob = -1.0 * F.log_softmax(x_copy, 1)
+	print(log_prob.shape, y.shape)
+	loss = log_prob.gather(1, y.long())
 	loss = loss.mean()
-	gradient = nn_loss_gradient(net, image, label)
-	loss_gradient_norm = np.max(np.abs(gradient))
+	print("loss=", loss)
+	net_copy = copy.deepcopy(net)
+	net_copy.zero_grad()
+	loss.backward()
+	print(x_copy.grad())
+	loss_gradient = copy.deepcopy(x_copy.grad.data[0])
+	loss_gradient_norm = np.max(np.abs(loss_gradient))
+
 	reg_loss = loss + lam*loss_gradient_norm
+	print(reg_loss)
+	exit()
+	x.requires_grad = False
 	return reg_loss
 
 
 class BRNN(nn.Module):
 
 	def __init__(self, dataset_name, input_shape, output_size, inference, lam=0.5):
+		super(BRNN, self).__init__()	
 		self.base_net = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size)
 		self.dataset_name = dataset_name
 		self.inference = inference
 		self.lam = lam
-		self.criterion = regularized_cross_entropy()
+		self.criterion = lambda net, x, y, lam: regularized_cross_entropy(net, x, y, lam)
 
 	def get_hyperparams(self, args):
 
-		hyperparams = {"sgd_epochs":args.sgd_epochs, "sgd_lr":sgd_lr}
+		hyperparams = {"sgd_epochs":args.sgd_epochs, "sgd_lr":args.sgd_lr}
 
 		if self.inference == "svi":
-			return hyperparams.update({"svi_epochs":args.svi_epochs, "svi_lr":args.svi_lr})
+			hyperparams.update({"svi_epochs":args.svi_epochs, "svi_lr":args.svi_lr})
 
 		elif self.inference == "mcmc":
-			return hyperparams.update({"mcmc_samples":args.mcmc_samples, "warmup":args.warmup})
+			hyperparams.update({"mcmc_samples":args.mcmc_samples, "warmup":args.warmup})
+
+		return hyperparams
 
 	def get_filename(self, n_inputs, hyperparams):
 
-		filename = str(self.dataset_name)+"_BRN_inp="+str(n_inputs)"_lam="+str(self.lam)+"_ep="+\
+		filename = str(self.dataset_name)+"_BRN_inp="+str(n_inputs)+"_lam="+str(self.lam)+"_ep="+\
 			       str(self.epochs)+"_lr="+str(self.lr)
 
 		if self.inference == "svi":
@@ -215,11 +231,11 @@ class BRNN(nn.Module):
 	def _train_sgd(self, images, labels, lr):
 		print("\n --- SGD step --")
 
-		optimizer = torchopt.Adam(params=self.net.parameters(), lr=lr)
+		optimizer = torchopt.Adam(params=self.base_net.parameters(), lr=lr)
 		optimizer.zero_grad()
 		outputs = self.forward(images)
 
-		loss = self.criterion(self.net, outputs, labels, self.lam)
+		loss = self.criterion(self.base_net, images, labels, self.lam)
 		loss.backward()
 		optimizer.step()
 
@@ -306,6 +322,7 @@ def main(args):
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
+    parser = argparse.ArgumentParser(description="Last layer BNN + regularization")
 
     parser.add_argument("--inputs", default=100, type=int)
     parser.add_argument("--dataset", default="mnist", type=str, help='mnist, cifar, fashion_mnist')
