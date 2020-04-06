@@ -71,9 +71,9 @@ class NN(nn.Module):
 			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
 	def load(self, epochs, lr, device, rel_path=TESTS):
-		filename = self.get_filename(self.dataset_name, epochs, lr)+"_weights.pt"
-		print("\nLoading: ", rel_path+filename)
-		self.load_state_dict(torch.load(rel_path+filename))
+		self.filename = self.get_filename(self.dataset_name, epochs, lr)+"_weights.pt"
+		print("\nLoading: ", rel_path+self.filename)
+		self.load_state_dict(torch.load(rel_path+self.filename))
 		print("\n", list(self.state_dict().keys()), "\n")
 		self.to(device)
 
@@ -87,7 +87,7 @@ class NN(nn.Module):
 		random.seed(0)
 		self.to(device)
 
-		optimizer = torchopt.Adam(params=self.parameters(), lr=0.001)
+		optimizer = torchopt.Adam(params=self.parameters(), lr=lr)
 
 		start = time.time()
 		for epoch in range(epochs):
@@ -97,21 +97,21 @@ class NN(nn.Module):
 			total = 0.0
 			n_inputs = 0
 
-			for images, labels in train_loader:
-				n_inputs += len(images)
-				images = images.to(device)
-				labels = labels.to(device).argmax(-1)
-				total += labels.size(0)
+			for x_batch, y_batch in train_loader:
+				n_inputs += len(x_batch)
+				x_batch = x_batch.to(device)
+				y_batch = y_batch.to(device).argmax(-1)
+				total += y_batch.size(0)
 
 				optimizer.zero_grad()
-				outputs = self.forward(images)
-				loss = self.criterion(outputs, labels)
+				outputs = self.forward(x_batch)
+				loss = self.criterion(outputs, y_batch)
 				loss.backward()
 				optimizer.step()
 
 				predictions = outputs.argmax(dim=1)
 				total_loss += loss.data.item() / len(train_loader.dataset)
-				correct_predictions += (predictions == labels).sum()
+				correct_predictions += (predictions == y_batch).sum()
 				accuracy = 100 * correct_predictions / len(train_loader.dataset)
 
 			# print(self.l2.0.weight.data)
@@ -129,13 +129,13 @@ class NN(nn.Module):
 
 			correct_predictions = 0.0
 
-			for images, labels in test_loader:
+			for x_batch, y_batch in test_loader:
 
-				images = images.to(device)
-				labels = labels.to(device).argmax(-1)
-				outputs = self(images)
+				x_batch = x_batch.to(device)
+				y_batch = y_batch.to(device).argmax(-1)
+				outputs = self(x_batch)
 				predictions = outputs.argmax(dim=1)
-				correct_predictions += (predictions == labels).sum()
+				correct_predictions += (predictions == y_batch).sum()
 
 			accuracy = 100 * correct_predictions / len(test_loader.dataset)
 			print("\nAccuracy: %.2f%%" % (accuracy))
@@ -155,8 +155,8 @@ class redBNN(nn.Module):
 		if self.inference == "svi":
 			return {"epochs":args.epochs, "lr":args.lr}
 
-		elif self.inference == "mcmc":
-			return {"mcmc_samples":args.mcmc_samples, "warmup":args.warmup}
+		elif self.inference == "hmc":
+			return {"hmc_samples":args.hmc_samples, "warmup":args.warmup}
 
 	def get_filename(self, n_inputs, hyperparams):
 
@@ -165,9 +165,9 @@ class redBNN(nn.Module):
 			       str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])+"_"+\
 			       str(self.inference)
 
-		elif self.inference == "mcmc":
+		elif self.inference == "hmc":
 			return str(self.dataset_name)+"_redBNN_inp="+str(n_inputs)+"_samp="+\
-			       str(hyperparams["mcmc_samples"])+"_warm="+str(hyperparams["warmup"])+\
+			       str(hyperparams["hmc_samples"])+"_warm="+str(hyperparams["warmup"])+\
 			       "_"+str(self.inference)
 
 	def model(self, x_data, y_data):
@@ -224,7 +224,7 @@ class redBNN(nn.Module):
 			print(f"\nlearned params = {param_store.get_all_param_names()}")
 			param_store.save(path + filename +".pt")
 
-		elif self.inference == "mcmc":
+		elif self.inference == "hmc":
 			self.net.to("cpu")
 			self.to("cpu")
 			save_to_pickle(data=self.posterior_samples, path=path, filename=filename+".pkl")
@@ -239,7 +239,7 @@ class redBNN(nn.Module):
 			param_store.load(path + filename + ".pt")
 			print("\nLoading ", path + filename + ".pt\n")
 
-		elif self.inference == "mcmc":
+		elif self.inference == "hmc":
 			posterior_samples = load_from_pickle(path + filename + ".pkl")
 			self.posterior_samples = posterior_samples
 			print("\nLoading ", path + filename + ".pkl\n")
@@ -267,7 +267,7 @@ class redBNN(nn.Module):
 					print("\nmodule$$$out.weight shoud change:\n", 
 						  guide_trace.nodes['module$$$out.weight']['value'][0][:3]) 
 
-		elif self.inference == "mcmc":
+		elif self.inference == "hmc":
 
 			if DEBUG:
 				print("\nself.net.state_dict() keys = ", self.net.state_dict().keys())
@@ -289,30 +289,30 @@ class redBNN(nn.Module):
 		pred = torch.stack(preds, dim=0)
 		return pred.mean(0) 
 
-	def _train_mcmc(self, train_loader, hyperparams, device):
-		print("\n == redBNN MCMC training ==")
+	def _train_hmc(self, train_loader, hyperparams, device):
+		print("\n == redBNN HMC training ==")
 
-		num_samples, warmup_steps = (hyperparams["mcmc_samples"], hyperparams["warmup"])
+		num_samples, warmup_steps = (hyperparams["hmc_samples"], hyperparams["warmup"])
 
 		# kernel = HMC(self.model, step_size=0.0855, num_steps=4)
 		kernel = NUTS(self.model)
-		mcmc = MCMC(kernel=kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
+		hmc = MCMC(kernel=kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
 
 		start = time.time()
 		n_inputs = 0
-		for images, labels in train_loader:
-			n_inputs += len(images)
-			images = images.to(device)
-			labels = labels.to(device).argmax(-1)
-			mcmc.run(images.to(device), labels.to(device))
+		for x_batch, y_batch in train_loader:
+			n_inputs += len(x_batch)
+			x_batch = x_batch.to(device)
+			y_batch = y_batch.to(device).argmax(-1)
+			hmc.run(x_batch.to(device), y_batch.to(device))
 
 		execution_time(start=start, end=time.time())
 
-		mcmc_samples = mcmc.get_samples()
-		self.posterior_samples = mcmc_samples
+		hmc_samples = hmc.get_samples()
+		self.posterior_samples = hmc_samples
 		self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
 
-		return mcmc_samples
+		return hmc_samples
 
 	def _train_svi(self, train_loader, hyperparams, device):
 		print("\n == redBNN SVI training ==")
@@ -331,18 +331,18 @@ class redBNN(nn.Module):
 			total = 0.0
 
 			n_inputs = 0
-			for images, labels in train_loader:
-				n_inputs += len(images)
-				images = images.to(device)
-				labels = labels.to(device).argmax(-1)
-				total += labels.size(0)
+			for x_batch, y_batch in train_loader:
+				n_inputs += len(x_batch)
+				x_batch = x_batch.to(device)
+				y_batch = y_batch.to(device).argmax(-1)
+				total += y_batch.size(0)
 
-				outputs = self.forward(images).to(device)
-				loss = svi.step(x_data=images, y_data=labels)
+				outputs = self.forward(x_batch).to(device)
+				loss = svi.step(x_data=x_batch, y_data=y_batch)
 
 				predictions = outputs.argmax(dim=1)
 				total_loss += loss / len(train_loader.dataset)
-				correct_predictions += (predictions == labels).sum()
+				correct_predictions += (predictions == y_batch).sum()
 				accuracy = 100 * correct_predictions / len(train_loader.dataset)
 
 			# if DEBUG:
@@ -366,8 +366,8 @@ class redBNN(nn.Module):
 		if self.inference == "svi":
 			self._train_svi(train_loader, hyperparams, device)
 
-		elif self.inference == "mcmc":
-			self._train_mcmc(train_loader, hyperparams, device)
+		elif self.inference == "hmc":
+			self._train_hmc(train_loader, hyperparams, device)
 
 	def evaluate(self, test_loader, device):
 		self.to(device)
@@ -377,13 +377,13 @@ class redBNN(nn.Module):
 
 			correct_predictions = 0.0
 
-			for images, labels in test_loader:
+			for x_batch, y_batch in test_loader:
 
-				images = images.to(device)
-				labels = labels.to(device).argmax(-1)
-				outputs = self.forward(images)
+				x_batch = x_batch.to(device)
+				y_batch = y_batch.to(device).argmax(-1)
+				outputs = self.forward(x_batch)
 				predictions = outputs.argmax(dim=1)
-				correct_predictions += (predictions == labels).sum()
+				correct_predictions += (predictions == y_batch).sum()
 
 			accuracy = 100 * correct_predictions / len(test_loader.dataset)
 			print("\nAccuracy: %.2f%%" % (accuracy))
@@ -424,7 +424,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
     parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--mcmc_samples", nargs='?', default=30, type=int)
+    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
     parser.add_argument("--warmup", nargs='?', default=10, type=int)
     parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')	

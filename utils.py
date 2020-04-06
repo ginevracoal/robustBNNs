@@ -34,12 +34,9 @@ def data_loaders(dataset_name, batch_size, n_inputs, channels="first", shuffle=T
     train_loader = DataLoader(dataset=list(zip(x_train, y_train)), batch_size=batch_size, shuffle=shuffle)
     test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=batch_size, shuffle=shuffle)
 
-    # todo: check shuffling seed on data loaders
+    num_classes = 10
 
-    # input_size = input_shape[0]*input_shape[1]*input_shape[2]
-    output_size = 10
-
-    return train_loader, test_loader, input_shape, output_size
+    return train_loader, test_loader, input_shape, num_classes
 
 def load_fashion_mnist(channels, img_rows=28, img_cols=28):
     print("\nLoading fashion mnist.")
@@ -154,12 +151,7 @@ def load_cifar(channels, img_rows=32, img_cols=32):
     num_classes = 10
     return x_train, y_train, x_test, y_test, input_shape, num_classes
 
-def load_dataset(dataset_name, channels, n_inputs=None):
-    """
-    Load dataset.
-    :param dataset_name: choose between "mnist" and "cifar"
-    :param test: If True only loads the first 100 samples
-    """
+def load_dataset(dataset_name, n_inputs, channels="first"):
 
     if dataset_name == "mnist":
         x_train, y_train, x_test, y_test, input_shape, num_classes = load_mnist(channels)

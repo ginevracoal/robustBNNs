@@ -13,7 +13,6 @@ from reducedBNN import NN, redBNN
 DEBUG=False
 
 
-
 def nn_loss_gradient(nn, image, label):
 
     image = image.unsqueeze(0)
@@ -25,7 +24,7 @@ def nn_loss_gradient(nn, image, label):
     nn_copy = copy.deepcopy(nn)
     output = nn_copy.forward(inputs=x_copy)
     loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
-    bnn_copy.zero_grad()
+    nn_copy.zero_grad()
 
     loss.backward()
     loss_gradient = copy.deepcopy(x_copy.grad.data[0])
@@ -48,8 +47,23 @@ def bnn_loss_gradient(bnn, n_samples, image, label):
     loss_gradient = copy.deepcopy(x_copy.grad.data[0])
     return loss_gradient
 
+# def nn_loss_gradients(nn, data_loader, device, filename):
+#     print(f"\n === Loss gradients on {len(data_loader.dataset)} input images:")
 
-def loss_gradients(bnn, n_samples, data_loader, device, filename):
+#     loss_gradients = []
+#     for images, labels in tqdm(data_loader):
+#         for i in range(len(images)):
+#             loss_gradients.append(bnn_loss_gradient(bnn=bnn, n_samples=n_samples, 
+#                                   image=images[i].to(device), label=labels[i].to(device)))
+
+#     loss_gradients = torch.stack(loss_gradients)
+#     print(f"\nexp_mean = {loss_gradients.mean()} \t exp_std = {loss_gradients.std()}")
+
+#     loss_gradients = loss_gradients.cpu().detach().numpy().squeeze()
+#     save_to_pickle(data=loss_gradients, path=TESTS+filename+"/", filename=filename+"_lossGrads.pkl")
+#     return loss_gradients
+
+def bnn_loss_gradients(bnn, n_samples, data_loader, device, filename):
     print(f"\n === Expected loss gradients on {n_samples} posteriors"
           f" and {len(data_loader.dataset)} input images:")
 
@@ -148,7 +162,7 @@ def main(args):
 
     loss_gradients_list = []
     for posterior_samples in n_samples_list:
-        loss_gradients_list.append(loss_gradients(bnn=bnn, n_samples=posterior_samples, 
+        loss_gradients_list.append(bnn_loss_gradients(bnn=bnn, n_samples=posterior_samples, 
                                    data_loader=test_loader, device=args.device, filename=filename))
     
 
@@ -160,7 +174,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
     parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--mcmc_samples", nargs='?', default=30, type=int)
+    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
     parser.add_argument("--warmup", nargs='?', default=10, type=int)
     parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')   
