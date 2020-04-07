@@ -9,6 +9,7 @@ import torch
 from reducedBNN import NN, redBNN
 from utils import load_dataset, save_to_pickle, load_from_pickle
 import numpy as np
+from torch.utils.data import DataLoader
 
 
 DEBUG=False
@@ -26,9 +27,6 @@ def softmax_difference(original_predictions, adversarial_predictions):
     if len(original_predictions) != len(adversarial_predictions):
         raise ValueError("\nInput arrays should have the same length.")
 
-    original_predictions = torch.stack(original_predictions)
-    adversarial_predictions = torch.stack(adversarial_predictions)
-
     softmax_diff = original_predictions-adversarial_predictions
     softmax_diff_norms = softmax_diff.abs().max(dim=-1)[0]
     return softmax_diff_norms
@@ -39,7 +37,6 @@ def softmax_robustness(original_outputs, adversarial_outputs):
 
     softmax_differences = softmax_difference(original_outputs, adversarial_outputs)
     robustness = (torch.ones_like(softmax_differences)-softmax_differences).sum(dim=0)/len(original_outputs)
-    # print(softmax_differences)
     print(f"softmax_robustness = {robustness.item():.2f}")
     return robustness.item()
 
@@ -64,35 +61,34 @@ def fgsm_attack(model, image, label, epsilon=0.3):
     return perturbed_image
 
 
-def pgd_attack(model, image, label, epsilon=0.3, alpha=2 / 255, iters=5):
+def pgd_attack(model, image, label, epsilon=0.3, alpha=2/255, iters=40):
 
     original_image = copy.deepcopy(image)
-    image.requires_grad = True  
 
     for i in range(iters):
+        image.requires_grad = True  
         output = model.forward(image)
-        loss = torch.nn.CrossEntropyLoss()(output, label).to(device)
+        loss = torch.nn.CrossEntropyLoss()(output, label)
         model.zero_grad()
         loss.backward()
 
-        perturbed_image = image + alpha * image.grad.sign()
+        perturbed_image = image + alpha * image.grad.data.sign()
         eta = torch.clamp(perturbed_image - original_image, min=-epsilon, max=epsilon)
         image = torch.clamp(original_image + eta, min=0, max=1).detach()
 
+    perturbed_image = image
     return perturbed_image
 
 
 def attack(net, x_test, y_test, dataset_name, device, method, filename):
 
-    print(f"\nProducing {method} attacks on {dataset_name}.\n")
+    print(f"\nProducing {method} attacks on {dataset_name}:")
 
-    x_test.to(device)
-    y_test.to(device)
     adversarial_attack = []
 
     for idx in tqdm(range(len(x_test))):
-        image = x_test[idx].unsqueeze(0)
-        label = y_test[idx].argmax(-1).unsqueeze(0)
+        image = x_test[idx].unsqueeze(0).to(device)
+        label = y_test[idx].argmax(-1).unsqueeze(0).to(device)
 
         if method == "fgsm":
             perturbed_image = fgsm_attack(model=net, image=image, label=label)
@@ -101,46 +97,50 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename):
 
         adversarial_attack.append(perturbed_image)
 
-    # list of tensors to tensor
-    adversarial_attack = torch.stack(adversarial_attack)
+    # concatenate list of tensors 
+    adversarial_attack = torch.cat(adversarial_attack)
 
     save_to_pickle(data=adversarial_attack, path=TESTS+filename+"/", 
-                   filename=filename+"_inputs="+str(len(x_test))+"_"+str(method)+"_attack.pkl")
+                   filename=filename+"_"+str(method)+"_attack.pkl")
     return adversarial_attack
 
+def load_attack(model, method, rel_path=TESTS):
+    path = rel_path+model.filename+"/"+model.filename+"_"+str(method)+"_attack.pkl"
+    return load_from_pickle(path=path)
+
 def attack_evaluation(model, x_test, x_attack, y_test, device):
-    print(f"\nEvaluating against the attacks.\n")
-    
-    x_test.to(device)
-    x_attack.to(device)
-    y_test.to(device)
+    print(f"\nEvaluating against the attacks:")
+
+    model.to(device)
+    if hasattr(model, 'net'):
+        model.net.to(device) # fixed layers in BNN
+
+    test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=128, shuffle=False)
+    attack_loader = DataLoader(dataset=list(zip(x_attack, y_test)), batch_size=128, shuffle=False)
 
     with torch.no_grad():
 
         original_outputs = []
-        adversarial_outputs = []
         original_correct = 0.0
+        for images, labels in test_loader:
+            out = model.forward(images)
+            original_correct += ((out.argmax(-1) == labels.argmax(-1)).sum().item())
+            original_outputs.append(out)
+
+        adversarial_outputs = []
         adversarial_correct = 0.0
+        for attacks, labels in attack_loader:
+            out = model.forward(attacks)
+            adversarial_correct += ((out.argmax(-1) == labels.argmax(-1)).sum().item())
+            adversarial_outputs.append(out)
 
-        for idx in tqdm(range(len(x_test))):
-
-            image = x_test[idx].unsqueeze(0)
-            label = y_test[idx].argmax(-1).unsqueeze(0)
-            attack = x_attack[idx]
-            original_output = model.forward(image)
-
-            adversarial_output = model.forward(attack)
-            original_correct += ((original_output.argmax(-1) == label).sum().item())
-            adversarial_correct += ((adversarial_output.argmax(-1) == label).sum().item())
-
-            original_outputs.append(original_output)
-            adversarial_outputs.append(adversarial_output)
-    
         original_accuracy = 100 * original_correct / len(x_test)
         adversarial_accuracy = 100 * adversarial_correct / len(x_test)
-        
         print(f"\ntest accuracy = {original_accuracy}\tadversarial accuracy = {adversarial_accuracy}",
               end="\t")
+
+        original_outputs = torch.cat(original_outputs)
+        adversarial_outputs = torch.cat(adversarial_outputs)
         softmax_rob = softmax_robustness(original_outputs, adversarial_outputs)
 
 
@@ -156,12 +156,14 @@ def main(args):
     x_test = torch.from_numpy(x_test)
     y_test = torch.from_numpy(y_test)
 
-    dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)    
+    dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)    
     nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
     nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
 
     x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
                       device=args.device, method=args.attack, filename=nn.filename)
+    # x_attack = load_attack(model=nn, method=args.attack, rel_path=DATA)
+
     attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
     bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
