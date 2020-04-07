@@ -8,6 +8,7 @@ import copy
 import torch
 from reducedBNN import NN, redBNN
 from utils import load_dataset, save_to_pickle, load_from_pickle
+import numpy as np
 
 
 DEBUG=False
@@ -84,11 +85,13 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename):
 
     print(f"\nProducing {method} attacks on {dataset_name}.\n")
 
+    x_test.to(device)
+    y_test.to(device)
     adversarial_attack = []
 
     for idx in tqdm(range(len(x_test))):
-        image = x_test[idx].to(device).unsqueeze(0)
-        label = y_test[idx].to(device).argmax(-1).unsqueeze(0)
+        image = x_test[idx].unsqueeze(0)
+        label = y_test[idx].argmax(-1).unsqueeze(0)
 
         if method == "fgsm":
             perturbed_image = fgsm_attack(model=net, image=image, label=label)
@@ -97,12 +100,20 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename):
 
         adversarial_attack.append(perturbed_image)
 
+    # list of tensors to tensor
+    adversarial_attack = torch.stack(adversarial_attack)
+
     save_to_pickle(data=adversarial_attack, path=TESTS+filename+"/", 
-                   filename=filename+"_"+str(method)+"_attack.pkl")
+                   filename=filename+"_inputs="+str(len(x_test))+"_"+str(method)+"_attack.pkl")
     return adversarial_attack
 
 
 def attack_evaluation(model, x_test, x_attack, y_test, device):
+    print(f"\nEvaluating against the attacks.\n")
+    
+    x_test.to(device)
+    x_attack.to(device)
+    y_test.to(device)
 
     with torch.no_grad():
 
@@ -113,10 +124,9 @@ def attack_evaluation(model, x_test, x_attack, y_test, device):
 
         for idx in tqdm(range(len(x_test))):
 
-            image = x_test[idx].to(device).unsqueeze(0)
-            attack = x_attack[idx].to(device).unsqueeze(0)
-            label = y_test[idx].to(device).argmax(-1).unsqueeze(0)
-
+            image = x_test[idx].unsqueeze(0)
+            label = y_test[idx].argmax(-1).unsqueeze(0)
+            attack = x_attack[idx]
             original_output = model.forward(image)
 
             adversarial_output = model.forward(attack)
@@ -126,10 +136,11 @@ def attack_evaluation(model, x_test, x_attack, y_test, device):
             original_outputs.append(original_output)
             adversarial_outputs.append(adversarial_output)
     
-        original_accuracy = 100 * original_correct / len(data_loader.dataset)
-        adversarial_accuracy = 100 * adversarial_correct / len(data_loader.dataset)
+        original_accuracy = 100 * original_correct / len(x_test)
+        adversarial_accuracy = 100 * adversarial_correct / len(x_test)
         
-        print(f"\norig_acc = {original_accuracy}\t\tadv_acc = {adversarial_accuracy}", end="\t")
+        print(f"\ntest accuracy = {original_accuracy}\tadversarial accuracy = {adversarial_accuracy}",
+              end="\t")
         softmax_rob = softmax_robustness(original_outputs, adversarial_outputs)
 
 
