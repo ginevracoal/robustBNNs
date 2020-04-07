@@ -34,7 +34,8 @@ def softmax_difference(original_predictions, adversarial_predictions):
     return softmax_diff_norms
 
 def softmax_robustness(original_outputs, adversarial_outputs):
-    """ This robustness measure is global and it is stricly dependent on the epsilon chosen for the perturbations."""
+    """ This robustness measure is global and it is stricly dependent on the epsilon chosen for the 
+    perturbations."""
 
     softmax_differences = softmax_difference(original_outputs, adversarial_outputs)
     robustness = (torch.ones_like(softmax_differences)-softmax_differences).sum(dim=0)/len(original_outputs)
@@ -107,7 +108,6 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename):
                    filename=filename+"_inputs="+str(len(x_test))+"_"+str(method)+"_attack.pkl")
     return adversarial_attack
 
-
 def attack_evaluation(model, x_test, x_attack, y_test, device):
     print(f"\nEvaluating against the attacks.\n")
     
@@ -144,6 +144,10 @@ def attack_evaluation(model, x_test, x_attack, y_test, device):
         softmax_rob = softmax_robustness(original_outputs, adversarial_outputs)
 
 
+########
+# main #
+########
+
 def main(args):
 
     _, _, x_test, y_test, inp_shape, out_size = \
@@ -157,7 +161,7 @@ def main(args):
     nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
 
     x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
-                      device=args.device, method="fgsm", filename=nn.filename)
+                      device=args.device, method=args.attack, filename=nn.filename)
     attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
     bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
@@ -171,13 +175,14 @@ if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="adversarial attacks")
 
-    parser.add_argument("--inputs", nargs="?", default=100, type=int)
-    parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
-    parser.add_argument("--inference", nargs='?', default="svi", type=str)
-    parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
-    parser.add_argument("--warmup", nargs='?', default=10, type=int)
-    parser.add_argument("--lr", nargs='?', default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')   
+    parser.add_argument("--inputs", default=100, type=int)
+    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, cifar, fashion_mnist")
+    parser.add_argument("--attack", default="fgsm", type=str, help="fgsm, pgd")
+    parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
+    parser.add_argument("--epochs", default=10, type=int)
+    parser.add_argument("--hmc_samples", default=30, type=int)
+    parser.add_argument("--warmup", default=10, type=int)
+    parser.add_argument("--lr", default=0.001, type=float)
+    parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")   
 
     main(args=parser.parse_args())
