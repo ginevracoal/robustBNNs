@@ -42,8 +42,9 @@ class NN(nn.Module):
 		else:
 			raise NotImplementedError()
 
-	def get_filename(self, dataset_name, epochs, lr):
-		return str(dataset_name)+"_nn_ep="+str(epochs)+"_lr="+str(lr)
+	def get_filename(self, epochs, lr):
+		self.filename = str(self.dataset_name)+"_nn_ep="+str(epochs)+"_lr="+str(lr)
+		return self.filename
 
 	def forward(self, inputs):
 		x = inputs
@@ -60,10 +61,10 @@ class NN(nn.Module):
 		return output
 
 	def save(self, epochs, lr):
-		filename = self.get_filename(self.dataset_name, epochs, lr)+"_weights.pt"
-		os.makedirs(os.path.dirname(TESTS), exist_ok=True)
-		print("\nSaving: ", TESTS+filename)
-		torch.save(self.state_dict(), TESTS+filename)
+		filename = self.get_filename(epochs, lr)
+		os.makedirs(os.path.dirname(TESTS)+filename+"/", exist_ok=True)
+		print("\nSaving: ", TESTS+filename+"/"+filename+"_weights.pt")
+		torch.save(self.state_dict(), TESTS+filename+"/"+filename+"_weights.pt")
 
 		if DEBUG:
 			print("\nCheck saved weights:")
@@ -71,9 +72,9 @@ class NN(nn.Module):
 			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
 	def load(self, epochs, lr, device, rel_path=TESTS):
-		self.filename = self.get_filename(self.dataset_name, epochs, lr)+"_weights.pt"
-		print("\nLoading: ", rel_path+self.filename)
-		self.load_state_dict(torch.load(rel_path+self.filename))
+		filename = self.get_filename(epochs, lr)
+		print("\nLoading: ", rel_path+filename+"/"+filename+"_weights.pt")
+		self.load_state_dict(torch.load(rel_path+filename+"/"+filename+"_weights.pt"))
 		print("\n", list(self.state_dict().keys()), "\n")
 		self.to(device)
 
@@ -124,6 +125,7 @@ class NN(nn.Module):
 
 	def evaluate(self, test_loader, device):
 		self.to(device)
+		random.seed(0)
 
 		with torch.no_grad():
 
@@ -247,7 +249,7 @@ class redBNN(nn.Module):
 		self.to(device)
 		self.net.to(device)
 
-	def forward(self, inputs, n_samples=30):
+	def forward(self, inputs, n_samples=10):
 
 		if self.inference == "svi":
 
@@ -273,7 +275,7 @@ class redBNN(nn.Module):
 				print("\nself.net.state_dict() keys = ", self.net.state_dict().keys())
 
 			preds = []
-			for i in range(n_samples-1):
+			for i in range(len(self.posterior_samples)):
 				state_dict = self.net.state_dict()
 				out_w = self.posterior_samples["module$$$out.weight"][i]
 				out_b = self.posterior_samples["module$$$out.bias"][i]
@@ -296,23 +298,27 @@ class redBNN(nn.Module):
 
 		# kernel = HMC(self.model, step_size=0.0855, num_steps=4)
 		kernel = NUTS(self.model)
+		batch_samples = int(num_samples*train_loader.batch_size/len(train_loader.dataset))+1
+		print("\nSamples per batch =", batch_samples)
 		hmc = MCMC(kernel=kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
 
 		start = time.time()
-		n_inputs = 0
+
+		out_weight, out_bias = ([],[])
 		for x_batch, y_batch in train_loader:
-			n_inputs += len(x_batch)
 			x_batch = x_batch.to(device)
 			y_batch = y_batch.to(device).argmax(-1)
-			hmc.run(x_batch.to(device), y_batch.to(device))
+			hmc.run(x_batch, y_batch)
+			out_weight.append(hmc.get_samples()["module$$$out.weight"])
+			out_bias.append(hmc.get_samples()["module$$$out.bias"])
 
 		execution_time(start=start, end=time.time())
 
-		hmc_samples = hmc.get_samples()
-		self.posterior_samples = hmc_samples
-		self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
+		out_weight, out_bias = (torch.cat(out_weight), torch.cat(out_bias))
+		self.posterior_samples = {"module$$$out.weight":out_weight, "module$$$out.bias":out_bias}
 
-		return hmc_samples
+		self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
+		return self.posterior_samples
 
 	def _train_svi(self, train_loader, hyperparams, device):
 		print("\n == redBNN SVI training ==")
@@ -361,6 +367,7 @@ class redBNN(nn.Module):
 	def train(self, train_loader, hyperparams, device):
 		self.to(device)
 		self.net.to(device)
+		random.seed(0)
 		pyro.set_rng_seed(0)
 
 		if self.inference == "svi":
@@ -372,6 +379,8 @@ class redBNN(nn.Module):
 	def evaluate(self, test_loader, device):
 		self.to(device)
 		self.net.to(device)
+		random.seed(0)
+		pyro.set_rng_seed(0)
 
 		with torch.no_grad():
 
@@ -394,12 +403,12 @@ def main(args):
 
 	# === load dataset ===
 	train_loader, test_loader, inp_shape, out_size = \
-							data_loaders(dataset_name=args.dataset, batch_size=128, 
+							data_loaders(dataset_name=args.dataset, batch_size=256, 
 										 n_inputs=args.inputs, shuffle=True)
 	# === base NN ===
 
 	# dataset, epochs, lr, rel_path = (args.dataset, args.epochs, args.lr, TESTS)		
-	dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)	
+	dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)	
 
 	nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
 	# nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
@@ -407,7 +416,6 @@ def main(args):
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
 	# === reducedBNN ===
-
 	bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
 		         inference=args.inference, base_net=nn)
 	hyperparams = bnn.get_hyperparams(args)
@@ -420,13 +428,13 @@ if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="reduced BNN")
 
-    parser.add_argument("--inputs", nargs="?", default=100, type=int)
-    parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
-    parser.add_argument("--inference", nargs='?', default="svi", type=str)
-    parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--hmc_samples", nargs='?', default=30, type=int)
-    parser.add_argument("--warmup", nargs='?', default=10, type=int)
-    parser.add_argument("--lr", nargs='?', default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')	
+    parser.add_argument("--inputs", default=100, type=int)
+    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
+    parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
+    parser.add_argument("--epochs", default=10, type=int)
+    parser.add_argument("--hmc_samples", default=5, type=int)
+    parser.add_argument("--warmup", default=10, type=int)
+    parser.add_argument("--lr", default=0.001, type=float)
+    parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")	
 
     main(args=parser.parse_args())
