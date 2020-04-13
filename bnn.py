@@ -130,7 +130,16 @@ class BNN(nn.Module):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=1):
+    # def predict(self, inputs, n_samples=10):
+    #     sampled_models = [self.guide(None, None) for _ in range(n_samples)]
+    #     outputs = [self.model(inputs).data for model in sampled_models]
+    #     mean = outputs.mean(0)
+    #     return mean.argmax(-1)
+
+    def forward(self, inputs):
+        return self.net.forward(inputs)
+
+    def predict(self, inputs, n_samples=10):
         # random.seed(0)
         # pyro.set_rng_seed(0)
 
@@ -205,36 +214,33 @@ class BNN(nn.Module):
 
         start = time.time()
         for epoch in range(epochs):
-            total_loss = 0.0
+            loss = 0.0
             correct_predictions = 0.0
             accuracy = 0.0
-            count = 0.0
 
             n_inputs = 0
             for x_batch, y_batch in train_loader:
                 n_inputs += len(x_batch)
                 x_batch = x_batch.to(device)
                 labels = y_batch.to(device).argmax(-1)
-                count += len(x_batch)
+                loss += svi.step(x_data=x_batch, y_data=labels)
 
-                outputs = self.forward(x_batch).to(device)
-                loss = svi.step(x_data=x_batch, y_data=labels)
-
+                outputs = self.predict(x_batch).to(device)
                 predictions = outputs.argmax(dim=-1)
-                total_loss += loss / len(x_batch)
                 correct_predictions += (predictions == labels).sum()
             
-                accuracy = 100 * correct_predictions / count
+            loss = loss / len(train_loader.dataset)
+            accuracy = 100 * correct_predictions / len(train_loader.dataset)
 
-            print(outputs[:3][:5])
             if DEBUG:
-                print(outputs[:3][:5])
                 print(pyro.get_param_store().get_all_param_names())
+                print(outputs[:3][:5])
+                print(pyro.get_param_store()["model.0.weight_loc"][0][:5])
 
-            print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
+            print(f"\n[Epoch {epoch + 1}]\t loss: {loss:.8f} \t accuracy: {accuracy:.2f}", 
                   end="\t")
 
-            loss_list.append(total_loss)
+            loss_list.append(loss)
             accuracy_list.append(accuracy)
 
         execution_time(start=start, end=time.time())
@@ -271,7 +277,7 @@ class BNN(nn.Module):
 
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device).argmax(-1)
-                outputs = self.forward(x_batch, n_samples=n_samples)
+                outputs = self.predict(x_batch, n_samples=n_samples)
                 predictions = outputs.argmax(dim=1)
                 correct_predictions += (predictions == y_batch).sum()
 
