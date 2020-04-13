@@ -38,6 +38,33 @@ def data_loaders(dataset_name, batch_size, n_inputs, channels="first", shuffle=T
 
     return train_loader, test_loader, input_shape, num_classes
 
+def classwise_data_loaders(dataset_name, batch_size, n_inputs, shuffle=False):
+    random.seed(0)
+    x_train, y_train, x_test, y_test, input_shape, num_classes, data_format = \
+        load_dataset(dataset_name=dataset_name)
+
+    train_loaders = []
+    test_loaders = []
+
+    for label in range(num_classes):
+        label_idxs = y_train.argmax(1)==label
+        x_train_label = x_train[label_idxs][:n_inputs]
+        y_train_label = y_train[label_idxs][:n_inputs]
+
+        label_idxs = y_test.argmax(1)==label
+        x_test_label = x_test[label_idxs][:n_inputs]
+        y_test_label = y_test[label_idxs][:n_inputs]
+
+        train_loader = DataLoader(dataset=list(zip(x_train_label, y_train_label)), 
+                                  batch_size=batch_size, shuffle=shuffle)
+        test_loader = DataLoader(dataset=list(zip(x_test_label, y_test_label)), 
+                                 batch_size=batch_size, shuffle=shuffle)
+
+        train_loaders.append(train_loader)
+        test_loaders.append(test_loader)
+
+    return train_loaders, test_loaders, data_format, input_shape
+
 def load_fashion_mnist(channels, img_rows=28, img_cols=28):
     print("\nLoading fashion mnist.")
 
@@ -151,7 +178,7 @@ def load_cifar(channels, img_rows=32, img_cols=32):
     num_classes = 10
     return x_train, y_train, x_test, y_test, input_shape, num_classes
 
-def load_dataset(dataset_name, n_inputs, channels="first"):
+def load_dataset(dataset_name, n_inputs=None, channels="first"):
 
     if dataset_name == "mnist":
         x_train, y_train, x_test, y_test, input_shape, num_classes = load_mnist(channels)
