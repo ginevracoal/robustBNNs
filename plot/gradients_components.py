@@ -103,17 +103,27 @@ def main(args):
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs, shuffle=True)
 
-    # === load base NN ===
-    dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)    
-    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
-    nn.load(epochs=epochs, lr=lr, rel_path=rel_path, device=args.device)
+    # === load BNN ===
+    inference, hidden_size, activation, architecture, hyperparams = \
+       ("svi", 32, "leaky", "conv", {"epochs":10,"lr":0.001})
 
-    # === load reduced BNN ===
-    bnn = redBNN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
-                 inference=args.inference, base_net=nn)
-    hyperparams = bnn.get_hyperparams(args)
-    filename = bnn.get_filename(n_inputs=args.inputs, hyperparams=hyperparams)
-    bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS, device=args.device)
+    bnn = BNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
+              hidden_size=hidden_size, activation=activation, architecture=architecture, 
+              inference=inference)
+    bnn.load(hyperparams=hyperparams, device=args.device)
+    filename = bnn.name
+
+    # === load base NN ===
+    # dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)    
+    # nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
+    # nn.load(epochs=epochs, lr=lr, rel_path=rel_path, device=args.device)
+
+    # # === load reduced BNN ===
+    # bnn = redBNN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
+    #              inference=args.inference, base_net=nn)
+    # hyperparams = bnn.get_hyperparams(args)
+    # filename = bnn.get_filename(n_inputs=args.inputs, hyperparams=hyperparams)
+    # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS, device=args.device)
     
     # === compute loss gradients ===
     n_samples_list = [1,5,10]
@@ -125,8 +135,8 @@ def main(args):
                                              relpath=TESTS)
         loss_gradients_list.append(loss_gradients)
     
-    # gradient_components(loss_gradients_list=loss_gradients_list, n_samples_list=n_samples_list,
-    #                          dataset_name=args.dataset, filename=filename)
+    gradient_components(loss_gradients_list=loss_gradients_list, n_samples_list=n_samples_list,
+                             dataset_name=args.dataset, filename=filename)
 
     vanishing_gradients_heatmaps(loss_gradients_list=loss_gradients_list, 
                                  n_samples_list=n_samples_list, filename=filename)
@@ -139,7 +149,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", nargs='?', default="mnist", type=str)
     parser.add_argument("--inference", nargs='?', default="svi", type=str)
     parser.add_argument("--epochs", nargs='?', default=10, type=int)
-    parser.add_argument("--mcmc_samples", nargs='?', default=30, type=int)
+    parser.add_argument("--samples", nargs='?', default=30, type=int)
     parser.add_argument("--warmup", nargs='?', default=10, type=int)
     parser.add_argument("--lr", nargs='?', default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "cuda".')   
