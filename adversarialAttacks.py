@@ -10,7 +10,7 @@ from reducedBNN import NN, redBNN
 from utils import load_dataset, save_to_pickle, load_from_pickle
 import numpy as np
 from torch.utils.data import DataLoader
-
+from bnn import BNN
 
 DEBUG=False
 
@@ -45,11 +45,12 @@ def softmax_robustness(original_outputs, adversarial_outputs):
 # adversarial attacks #
 #######################
 
-def fgsm_attack(model, image, label, epsilon=0.3):
+def fgsm_attack(model, image, label, n_samples, epsilon=0.3):
 
     image.requires_grad = True
 
-    output = model.forward(image)
+    # output = model.forward(image)
+    output = model.forward(image, n_samples) if n_samples else model.forward(image) 
     loss = torch.nn.CrossEntropyLoss()(output, label)
     model.zero_grad()
     loss.backward()
@@ -61,13 +62,14 @@ def fgsm_attack(model, image, label, epsilon=0.3):
     return perturbed_image
 
 
-def pgd_attack(model, image, label, epsilon=0.3, alpha=2/255, iters=40):
+def pgd_attack(model, image, label, n_samples, epsilon=0.3, alpha=2/255, iters=40):
 
     original_image = copy.deepcopy(image)
 
     for i in range(iters):
         image.requires_grad = True  
-        output = model.forward(image)
+        # output = model.forward(image)
+        output = model.forward(image, n_samples) if n_samples else model.forward(image)
         loss = torch.nn.CrossEntropyLoss()(output, label)
         model.zero_grad()
         loss.backward()
@@ -80,7 +82,7 @@ def pgd_attack(model, image, label, epsilon=0.3, alpha=2/255, iters=40):
     return perturbed_image
 
 
-def attack(net, x_test, y_test, dataset_name, device, method, filename):
+def attack(net, x_test, y_test, dataset_name, device, method, filename, n_samples=None):
 
     print(f"\nProducing {method} attacks on {dataset_name}:")
 
@@ -91,26 +93,33 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename):
         label = y_test[idx].argmax(-1).unsqueeze(0).to(device)
 
         if method == "fgsm":
-            perturbed_image = fgsm_attack(model=net, image=image, label=label)
+            perturbed_image = fgsm_attack(model=net, image=image, label=label, n_samples=n_samples)
         elif method == "pgd":
-            perturbed_image = pgd_attack(model=net, image=image, label=label)
+            perturbed_image = pgd_attack(model=net, image=image, label=label, n_samples=n_samples)
 
         adversarial_attack.append(perturbed_image)
 
     # concatenate list of tensors 
     adversarial_attack = torch.cat(adversarial_attack)
 
-    save_to_pickle(data=adversarial_attack, path=TESTS+filename+"/", 
-                   filename=filename+"_"+str(method)+"_attack.pkl")
+    path = TESTS+filename+"/"
+    filename = filename+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else filename+"_attack.pkl"
+    save_to_pickle(data=adversarial_attack, path=path, filename=filename)
     return adversarial_attack
 
-def load_attack(model, method, rel_path=TESTS):
-    path = rel_path+model.filename+"/"+model.filename+"_"+str(method)+"_attack.pkl"
+def load_attack(model, method, filename, n_samples=None, rel_path=TESTS):
+    path = rel_path+filename+"/"+filename+"_"+str(method)
+    path = path+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else path+"_attack.pkl"
     return load_from_pickle(path=path)
 
-def attack_evaluation(model, x_test, x_attack, y_test, device):
+def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
     print(f"\nEvaluating against the attacks:")
-
+    random.seed(0)
+    pyro.set_rng_seed(0)
+    
+    x_test = x_test.to(device)
+    x_attack = x_attack.to(device)
+    y_test = y_test.to(device)
     model.to(device)
     if hasattr(model, 'net'):
         model.net.to(device) # fixed layers in BNN
@@ -123,14 +132,14 @@ def attack_evaluation(model, x_test, x_attack, y_test, device):
         original_outputs = []
         original_correct = 0.0
         for images, labels in test_loader:
-            out = model.forward(images)
+            out = model.forward(images, n_samples) if n_samples else model.forward(images)
             original_correct += ((out.argmax(-1) == labels.argmax(-1)).sum().item())
             original_outputs.append(out)
 
         adversarial_outputs = []
         adversarial_correct = 0.0
         for attacks, labels in attack_loader:
-            out = model.forward(attacks)
+            out = model.forward(attacks, n_samples) if n_samples else model.forward(attacks)
             adversarial_correct += ((out.argmax(-1) == labels.argmax(-1)).sum().item())
             adversarial_outputs.append(out)
 
@@ -151,7 +160,7 @@ def attack_evaluation(model, x_test, x_attack, y_test, device):
 def main(args):
 
     _, _, x_test, y_test, inp_shape, out_size = \
-                                        load_dataset(dataset_name=args.dataset, n_inputs=args.inputs)
+                                load_dataset(dataset_name=args.dataset, n_inputs=args.inputs)
 
     x_test = torch.from_numpy(x_test)
     y_test = torch.from_numpy(y_test)
@@ -160,29 +169,51 @@ def main(args):
     nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
     nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
 
-    x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
-                      device=args.device, method=args.attack, filename=nn.filename)
+    # x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
+    #                   device=args.device, method=args.attack, filename=nn.filename)
     # x_attack = load_attack(model=nn, method=args.attack, rel_path=DATA)
 
-    attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
+    # attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
-    bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
+    # === BNN ===
+
+    inference, hidden_size, activation, architecture, hyperparams = \
+       ("svi", 32, "leaky", "conv", {"epochs":10,"lr":0.001})
+
+    bnn = BNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
+              hidden_size=hidden_size, activation=activation, architecture=architecture, 
+              inference=inference)
+    bnn.load(hyperparams=hyperparams, device=args.device)
+
+    for attack_samples in [1, 10, 50]:
+        x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
+                          device=args.device, method=args.attack, filename=nn.filename, 
+                          n_samples=attack_samples)
+
+        for defence_samples in [attack_samples, 100]:
+            attack_evaluation(model=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
+                              device=args.device, n_samples=attack_samples)
+
+    exit()
+    # === redBNN ===
+
+    rBNN = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
                  inference=args.inference, base_net=nn)
-    hyperparams = bnn.get_hyperparams(args)
-    bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
-    attack_evaluation(model=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
+    hyperparams = rBNN.get_hyperparams(args)
+    rBNN.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
+    attack_evaluation(model=rBNN, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
-    parser = argparse.ArgumentParser(description="adversarial attacks")
+    parser = argparse.ArgumentParser(description="Adversarial attacks")
 
     parser.add_argument("--inputs", default=100, type=int)
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, cifar, fashion_mnist")
     parser.add_argument("--attack", default="fgsm", type=str, help="fgsm, pgd")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--hmc_samples", default=30, type=int)
+    parser.add_argument("--samples", default=30, type=int)
     parser.add_argument("--warmup", default=10, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")   
