@@ -15,22 +15,20 @@ DEBUG = False
 
 class NN(nn.Module):
 
-    def __init__(self, dataset_name, input_shape, output_size, hidden_size, activation, architecture):
+    def __init__(self, dataset_name, input_shape, output_size, hidden_size, activation, 
+                 architecture):
         super(NN, self).__init__()
         self.dataset_name = dataset_name
         self.criterion = nn.CrossEntropyLoss()
+        self.architecture = architecture
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.activation = activation
+
         self.name = self.get_name(dataset_name, hidden_size, activation, architecture)
-
-        # self.activation = activation
-        # self.architecture = architecture
-        # self.input_shape = input_shape
-        # self.output_size = output_size
-        # self.hidden_size = hidden_size
-
         self.set_model(architecture, activation, input_shape, output_size, hidden_size)
-
-        print(self)
         # print("\nTotal number of network weights =", sum(p.numel() for p in self.parameters()))
+        print("\nBase net:", self)
 
     def get_name(self, dataset_name, hidden_size, activation, architecture):
         return str(dataset_name)+"_nn_hid="+str(hidden_size)+"_act="+str(activation)+\
@@ -54,8 +52,7 @@ class NN(nn.Module):
                 nn.Flatten(),
                 nn.Linear(input_size, hidden_size),
                 activ(),
-                nn.Linear(hidden_size, n_classes),
-                nn.Softmax(dim=-1))
+                nn.Linear(hidden_size, n_classes))
 
         elif architecture == "fc2":
             self.model = nn.Sequential(
@@ -64,8 +61,7 @@ class NN(nn.Module):
                 activ(),
                 nn.Linear(hidden_size, hidden_size),
                 activ(),
-                nn.Linear(hidden_size, n_classes),
-                nn.Softmax(dim=-1))
+                nn.Linear(hidden_size, n_classes))
 
         elif architecture == "conv":
             self.model = nn.Sequential(
@@ -76,13 +72,14 @@ class NN(nn.Module):
                 activ(),
                 nn.MaxPool2d(kernel_size=2, stride=1),
                 nn.Flatten(),
-                nn.Linear(int(hidden_size/(4*4))*input_size, output_size),
-                nn.Softmax(dim=-1))
+                nn.Linear(int(hidden_size/(4*4))*input_size, output_size))
         else:
             raise NotImplementedError()
 
     def forward(self, inputs):
-        return self.model(inputs)
+        x = self.model(inputs)
+        return nn.Softmax(dim=-1)(x)
+
 
     def save(self, epochs, lr):
         name = self.name +"_ep="+str(epochs)+"_lr="+str(lr)
