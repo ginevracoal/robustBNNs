@@ -37,6 +37,6 @@ python3 bnn.py --inputs=$INPUTS --dataset=$DATASET --architecture=$ARCHITECTURE 
 # python3 adversarialAttacks.py --attack=$ATTACK --inputs=$INPUTS --dataset=$DATASET --inference=$INFERENCE --epochs=$EPOCHS --lr=$LR --samples=$N_SAMPLES --warmup=$WARMUP --device=$DEVICE &>> $OUT
 
 # python3 lossGradients.py  --inputs=$INPUTS --dataset=$DATASET --inference=$INFERENCE --epochs=$EPOCHS --lr=$LR --samples=$N_SAMPLES --warmup=$WARMUP --device=$DEVICE &>> $OUT
-# python3 plot.py  --inputs=$INPUTS --dataset=$DATASET --inference=$INFERENCE --epochs=$EPOCHS --lr=$LR --samples=$N_SAMPLES --warmup=$WARMUP --device=$DEVICE &>> $OUT
+# python3 plot/gradients_components.py  --inputs=$INPUTS --dataset=$DATASET --inference=$INFERENCE --epochs=$EPOCHS --lr=$LR --samples=$N_SAMPLES --warmup=$WARMUP --device=$DEVICE &>> $OUT
 
 deactivate
