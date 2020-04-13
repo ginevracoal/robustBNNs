@@ -80,7 +80,6 @@ class NN(nn.Module):
         x = self.model(inputs)
         return nn.Softmax(dim=-1)(x)
 
-
     def save(self, epochs, lr):
         name = self.name +"_ep="+str(epochs)+"_lr="+str(lr)
 

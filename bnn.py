@@ -39,7 +39,7 @@ class BNN(nn.Module):
             return {"epochs":args.epochs, "lr":args.lr}
 
         elif self.inference == "hmc":
-            return {"hmc_samples":args.hmc_samples, "warmup":args.warmup}
+            return {"n_samples":args.n_samples, "warmup":args.warmup}
 
     def get_name(self, hyperparams):
         
@@ -51,7 +51,7 @@ class BNN(nn.Module):
             return name+"_ep="+str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])
 
         elif self.inference == "hmc":
-            return name+"_samp="+str(hyperparams["hmc_samples"])+"_warm="+str(hyperparams["warmup"])
+            return name+"_samp="+str(hyperparams["n_samples"])+"_warm="+str(hyperparams["warmup"])
 
     def model(self, x_data, y_data):
 
@@ -65,28 +65,6 @@ class BNN(nn.Module):
         if DEBUG:
             print(state_dict.keys())
             print("\n", priors)
-
-        # if self.architecture == "fc":
-        #     l1w_prior = Normal(loc=torch.zeros_like(net_dict["l1.1.weight"]), 
-        #                         scale=torch.ones_like(net.l1.weight))
-        #     l1b_prior = Normal(loc=torch.zeros_like(net.l1.bias), 
-        #                         scale=torch.ones_like(net.l1.bias))
-        #     outw_prior = Normal(loc=torch.zeros_like(net.out.weight), 
-        #                         scale=torch.ones_like(net.out.weight))
-        #     outb_prior = Normal(loc=torch.zeros_like(net.out.bias), 
-        #                         scale=torch.ones_like(net.out.bias))
-        #     priors = {'l1': l1w_prior, 'out.bias': l1b_prior,
-        #               'out.weight': outw_prior, 'out.bias': outb_prior}
-
-        # if self.architecture == "fc2":
-        #     x = self.l1(inputs)
-        #     x = self.l2(inputs)
-        #     return self.out(x)
-
-        # if self.architecture == "conv":
-        #     x = self.conv1(inputs)
-        #     x = self.conv2(inputs)
-        #     return self.out(x)
         
         lifted_module = pyro.random_module("module", self.net, priors)()
         lhat = F.log_softmax(lifted_module(x_data), dim=-1)
@@ -101,39 +79,6 @@ class BNN(nn.Module):
         for key, value in state_dict.items():
             prior = Normal(loc=torch.zeros_like(value), scale=torch.ones_like(value))
             priors.update({str(key):prior})
-
-        if DEBUG:
-            print(state_dict.keys())
-            print("\n", priors.keys())
-
-        # if self.architecture == "fc":
-
-            # l1w_mu = torch.randn_like(net_dict["l1.1.weight"])
-            # l1w_sigma = torch.randn_like(net_dict["l1.1.weight"])
-            # l1w_mu_param = pyro.param("l1w_mu", l1w_mu)
-            # l1w_sigma_param = softplus(pyro.param("l1w_sigma", l1w_sigma))
-            # l1w_prior = Normal(loc=l1w_mu_param, scale=l1w_sigma_param).independent(1)
-
-            # l1b_mu = torch.randn_like(net_dict["l1.1.bias"])
-            # l1b_sigma = torch.randn_like(net_dict["l1.1.bias"])
-            # l1b_mu_param = pyro.param("l1b_mu", l1b_mu)
-            # l1b_sigma_param = softplus(pyro.param("l1b_sigma", l1b_sigma))
-            # l1b_prior = Normal(loc=l1b_mu_param, scale=l1b_sigma_param).independent(1)
-
-            # outw_mu = torch.randn_like(net_dict["out.0.weight"])
-            # outw_sigma = torch.randn_like(net_dict["out.0.weight"])
-            # outw_mu_param = pyro.param("outw_mu", outw_mu)
-            # outw_sigma_param = softplus(pyro.param("outw_sigma", outw_sigma))
-            # outw_prior = Normal(loc=outw_mu_param, scale=outw_sigma_param).independent(1)
-
-            # outb_mu = torch.randn_like(net_dict["out.0.bias"])
-            # outb_sigma = torch.randn_like(net_dict["out.0.bias"])
-            # outb_mu_param = pyro.param("outb_mu", outb_mu)
-            # outb_sigma_param = softplus(pyro.param("outb_sigma", outb_sigma))
-            # outb_prior = Normal(loc=outb_mu_param, scale=outb_sigma_param).independent(1)
-
-            # priors = {'l1': l1w_prior, 'out.bias': l1b_prior,
-            #           'out.weight': outw_prior, 'out.bias': outb_prior}
 
         lifted_module = pyro.random_module("module", self.net, priors)()
         logits = F.log_softmax(lifted_module(x_data), dim=-1)
@@ -178,7 +123,7 @@ class BNN(nn.Module):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=100):
+    def forward(self, inputs, n_samples=20):
 
         if self.inference == "svi":
 
@@ -194,56 +139,50 @@ class BNN(nn.Module):
 
         elif self.inference == "hmc":
 
-            if DEBUG:
-                print("\nself.net.state_dict() keys = ", self.net.state_dict().keys())
+            preds = []
+            for i in range(n_samples-1):
 
-            for key, value in state_dict.items():
-                prior = Normal(loc=torch.zeros_like(value), scale=torch.ones_like(value))
-                priors.update({str(key):prior})
-
-                preds = []
-                n_samples = min(n_samples, len(self.posterior_samples[0]))
-                for i in range(n_samples):
-
-                    for key, value in self.net.state_dict().items():
-                        out = self.posterior_samples[key][i]
-                        self.net.state_dict().update({str(key):out})
+                for key, value in self.net.state_dict().items():
+                    out = self.posterior_samples[str(f"module$$${key}_{i}")]
+                    self.net.state_dict().update({str(key):out})
 
                     preds.append(self.net.forward(inputs))
-        
-        print(f"{n_samples} post samp", end="\t")
+    
         pred = torch.stack(preds, dim=0)
         return pred.mean(0) 
 
     def _train_hmc(self, train_loader, hyperparams, device):
         print("\n == redBNN HMC training ==")
 
-        num_samples, warmup_steps = (hyperparams["hmc_samples"], hyperparams["warmup"])
+        num_samples, warmup_steps = (hyperparams["n_samples"], hyperparams["warmup"])
 
-        # kernel = HMC(self.model, step_size=0.0855, num_steps=4)
-        kernel = NUTS(self.model)
-        batch_samples = int(num_samples*train_loader.batch_size/len(train_loader.dataset))+1
+        kernel = HMC(self.model, step_size=0.0855, num_steps=4)
+        batch_samples = int(num_samples*train_loader.batch_size/len(train_loader.dataset))
         print("\nSamples per batch =", batch_samples)
-        hmc = MCMC(kernel=kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
+        mcmc = MCMC(kernel=kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
 
         start = time.time()
+        sample_idx = 0
+        posterior_samples = {}
 
-        out_weight, out_bias = ([],[])
         for x_batch, y_batch in train_loader:
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device).argmax(-1)
-            hmc.run(x_batch, y_batch)
-
-            # out_weight.append(hmc.get_samples()["module$$$out.weight"])
-            # out_bias.append(hmc.get_samples()["module$$$out.bias"])
-
+            mcmc.run(x_batch, y_batch)
+            
+            for idx in range(batch_samples-1):
+                for k, v in mcmc.get_samples().items():
+                    posterior_samples.update({f"{k}_{sample_idx}":v[idx]})
+                
+                sample_idx += 1
+           
         execution_time(start=start, end=time.time())
 
-        # out_weight, out_bias = (torch.cat(out_weight), torch.cat(out_bias))
-        # self.posterior_samples = {"module$$$out.weight":out_weight, "module$$$out.bias":out_bias}
+        if DEBUG:
+            print(posterior_samples.keys())
 
+        self.posterior_samples = posterior_samples
         self.save(hyperparams=hyperparams)
-        return self.posterior_samples
 
     def _train_svi(self, train_loader, hyperparams, device):
         print("\n == redBNN SVI training ==")
@@ -301,7 +240,7 @@ class BNN(nn.Module):
         elif self.inference == "hmc":
             self._train_hmc(train_loader, hyperparams, device)
 
-    def evaluate(self, test_loader, device):
+    def evaluate(self, test_loader, n_samples, device):
         self.to(device)
         self.net.to(device)
         random.seed(0)
@@ -315,7 +254,7 @@ class BNN(nn.Module):
 
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device).argmax(-1)
-                outputs = self.forward(x_batch)
+                outputs = self.forward(x_batch, n_samples=n_samples)
                 predictions = outputs.argmax(dim=1)
                 correct_predictions += (predictions == y_batch).sum()
 
@@ -326,7 +265,6 @@ class BNN(nn.Module):
 
 def main(args):
 
-    # === load dataset ===
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=args.dataset, batch_size=128, 
                                          n_inputs=args.inputs, shuffle=True)
@@ -339,7 +277,7 @@ def main(args):
     hyperparams = bnn.get_hyperparams(args)
     bnn.train(train_loader=train_loader, hyperparams=hyperparams, device=args.device)
     # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
-    bnn.evaluate(test_loader=test_loader, device=args.device)
+    bnn.evaluate(test_loader=test_loader, n_samples=args.n_samples, device=args.device)
     
 
 if __name__ == "__main__":
@@ -353,8 +291,8 @@ if __name__ == "__main__":
     parser.add_argument("--architecture", default="conv", type=str, help="conv, fc, fc2")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--hmc_samples", default=5, type=int)
-    parser.add_argument("--warmup", default=10, type=int)
+    parser.add_argument("--n_samples", default=5, type=int)
+    parser.add_argument("--warmup", default=5, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")  
    
