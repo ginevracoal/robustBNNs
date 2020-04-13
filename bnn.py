@@ -17,7 +17,9 @@ from pyro.infer.mcmc.util import predictive
 from pyro.infer.abstract_infer import TracePredictive
 from pyro.distributions import OneHotCategorical, Normal, Categorical
 from nn import NN
+from utils import plot_loss_accuracy
 softplus = torch.nn.Softplus()
+
 
 DEBUG = False
 
@@ -71,6 +73,7 @@ class BNN(nn.Module):
         lifted_module = pyro.random_module("module", self.net, priors)()
         lhat = F.log_softmax(lifted_module(x_data), dim=-1)
         cond_model = pyro.sample("obs", Categorical(logits=lhat), obs=y_data)
+
         return cond_model
 
     def guide(self, x_data, y_data=None):
@@ -79,8 +82,10 @@ class BNN(nn.Module):
 
         priors = {}
         for key, value in state_dict.items():
-            prior = Normal(loc=torch.zeros_like(value), scale=torch.ones_like(value))
-            priors.update({str(f"{key}_prior"):prior})
+            loc = pyro.param(str(f"{key}_loc"), 0.01*torch.randn_like(value))
+            scale = softplus(pyro.param(str(f"{key}_scale"), 0.1*torch.randn_like(value)))
+            prior = Normal(loc=loc, scale=scale)
+            priors.update({str(key):prior})
 
         lifted_module = pyro.random_module("module", self.net, priors)()
         logits = F.log_softmax(lifted_module(x_data), dim=-1)
@@ -125,20 +130,19 @@ class BNN(nn.Module):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=10):
-        random.seed(0)
-        pyro.set_rng_seed(0)
-        
+    def forward(self, inputs, n_samples=1):
+        # random.seed(0)
+        # pyro.set_rng_seed(0)
+
         if self.inference == "svi":
 
             preds = []
             for i in range(n_samples):
-                guide_trace = poutine.trace(self.guide).get_trace(inputs)           
+                guide_trace = poutine.trace(self.guide).get_trace(inputs)   
                 preds.append(guide_trace.nodes['_RETURN']['value'])
 
             if DEBUG:
                 print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
-                print(guide_trace.nodes['module$$$l1.1.weight']['value'][0,0:5])
 
         elif self.inference == "hmc":
 
@@ -156,7 +160,6 @@ class BNN(nn.Module):
 
     def _train_hmc(self, train_loader, hyperparams, device):
         print("\n == HMC training ==")
-        pyro.clear_param_store()
 
         n_samples, warmup_steps = (hyperparams["n_samples"], hyperparams["warmup"])
 
@@ -179,9 +182,7 @@ class BNN(nn.Module):
                     posterior_samples.update({f"{k}_{sample_idx}":v[idx]})
                 
                 sample_idx += 1
-            
-            print(posterior_samples.keys())
-           
+                       
         execution_time(start=start, end=time.time())
 
         if DEBUG:
@@ -198,6 +199,9 @@ class BNN(nn.Module):
         optimizer = pyro.optim.Adam({"lr":lr})
         elbo = TraceMeanField_ELBO()
         svi = SVI(self.model, self.guide, optimizer, loss=elbo)
+
+        loss_list = []
+        accuracy_list = []
 
         start = time.time()
         for epoch in range(epochs):
@@ -221,13 +225,25 @@ class BNN(nn.Module):
                 correct_predictions += (predictions == labels).sum()
             
                 accuracy = 100 * correct_predictions / count
+
+            print(outputs[:3][:5])
+            if DEBUG:
+                print(outputs[:3][:5])
+                print(pyro.get_param_store().get_all_param_names())
+
             print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
                   end="\t")
+
+            loss_list.append(total_loss)
+            accuracy_list.append(accuracy)
 
         execution_time(start=start, end=time.time())
 
         hyperparams = {"epochs":epochs, "lr":lr}    
         self.save(hyperparams=hyperparams)
+
+        plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
+                           path=TESTS+self.name+"/"+self.name+"_training.png")
 
     def train(self, train_loader, hyperparams, device):
         self.to(device)
