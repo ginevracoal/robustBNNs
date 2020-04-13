@@ -39,7 +39,7 @@ class BNN(nn.Module):
             return {"epochs":args.epochs, "lr":args.lr}
 
         elif self.inference == "hmc":
-            return {"n_samples":args.n_samples, "warmup":args.warmup}
+            return {"n_samples":args.samples, "warmup":args.warmup}
 
     def get_name(self, hyperparams):
         
@@ -48,23 +48,25 @@ class BNN(nn.Module):
                "_arch="+str(self.net.architecture)
 
         if self.inference == "svi":
-            return name+"_ep="+str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])
+            name = name+"_ep="+str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])
 
         elif self.inference == "hmc":
-            return name+"_samp="+str(hyperparams["n_samples"])+"_warm="+str(hyperparams["warmup"])
+            name = name+"_samp="+str(hyperparams["n_samples"])+"_warm="+str(hyperparams["warmup"])
+
+        self.name = name
+        return name
 
     def model(self, x_data, y_data):
 
         state_dict = self.net.state_dict()
-
         priors = {}
         for key, value in state_dict.items():
             prior = Normal(loc=torch.zeros_like(value), scale=torch.ones_like(value))
             priors.update({str(key):prior})
 
-        if DEBUG:
-            print(state_dict.keys())
-            print("\n", priors)
+        # if DEBUG:
+        #     print(state_dict.keys())
+        #     print("\n", priors)
         
         lifted_module = pyro.random_module("module", self.net, priors)()
         lhat = F.log_softmax(lifted_module(x_data), dim=-1)
@@ -78,7 +80,7 @@ class BNN(nn.Module):
         priors = {}
         for key, value in state_dict.items():
             prior = Normal(loc=torch.zeros_like(value), scale=torch.ones_like(value))
-            priors.update({str(key):prior})
+            priors.update({str(f"{key}_prior"):prior})
 
         lifted_module = pyro.random_module("module", self.net, priors)()
         logits = F.log_softmax(lifted_module(x_data), dim=-1)
@@ -104,7 +106,7 @@ class BNN(nn.Module):
             self.to("cpu")
             save_to_pickle(data=self.posterior_samples, path=path, filename=filename+".pkl")
 
-    def load(self, n_inputs, hyperparams, device, rel_path=TESTS):
+    def load(self, hyperparams, device, rel_path=TESTS):
 
         name = self.get_name(hyperparams)
         path = rel_path + name +"/"
@@ -123,13 +125,14 @@ class BNN(nn.Module):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=20):
-
+    def forward(self, inputs, n_samples=10):
+        random.seed(0)
+        pyro.set_rng_seed(0)
+        
         if self.inference == "svi":
 
             preds = []
             for i in range(n_samples):
-                # pyro.set_rng_seed(i)
                 guide_trace = poutine.trace(self.guide).get_trace(inputs)           
                 preds.append(guide_trace.nodes['_RETURN']['value'])
 
@@ -140,11 +143,11 @@ class BNN(nn.Module):
         elif self.inference == "hmc":
 
             preds = []
-            for i in range(n_samples-1):
+            for key, value in self.net.state_dict().items():
+                for i in range(n_samples):
 
-                for key, value in self.net.state_dict().items():
-                    out = self.posterior_samples[str(f"module$$${key}_{i}")]
-                    self.net.state_dict().update({str(key):out})
+                    weights = self.posterior_samples[str(f"module$$${key}_{i}")]
+                    self.net.state_dict().update({str(key):weights})
 
                     preds.append(self.net.forward(inputs))
     
@@ -152,14 +155,15 @@ class BNN(nn.Module):
         return pred.mean(0) 
 
     def _train_hmc(self, train_loader, hyperparams, device):
-        print("\n == redBNN HMC training ==")
+        print("\n == HMC training ==")
+        pyro.clear_param_store()
 
-        num_samples, warmup_steps = (hyperparams["n_samples"], hyperparams["warmup"])
+        n_samples, warmup_steps = (hyperparams["n_samples"], hyperparams["warmup"])
 
         kernel = HMC(self.model, step_size=0.0855, num_steps=4)
-        batch_samples = int(num_samples*train_loader.batch_size/len(train_loader.dataset))
-        print("\nSamples per batch =", batch_samples)
-        mcmc = MCMC(kernel=kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=1)
+        batch_samples = int(n_samples*train_loader.batch_size/len(train_loader.dataset))+1
+        print("\nSamples per batch =", batch_samples, ", Total samples =", n_samples)
+        mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup_steps, num_chains=1)
 
         start = time.time()
         sample_idx = 0
@@ -170,11 +174,13 @@ class BNN(nn.Module):
             y_batch = y_batch.to(device).argmax(-1)
             mcmc.run(x_batch, y_batch)
             
-            for idx in range(batch_samples-1):
+            for idx in range(batch_samples):
                 for k, v in mcmc.get_samples().items():
                     posterior_samples.update({f"{k}_{sample_idx}":v[idx]})
                 
                 sample_idx += 1
+            
+            print(posterior_samples.keys())
            
         execution_time(start=start, end=time.time())
 
@@ -185,7 +191,7 @@ class BNN(nn.Module):
         self.save(hyperparams=hyperparams)
 
     def _train_svi(self, train_loader, hyperparams, device):
-        print("\n == redBNN SVI training ==")
+        print("\n == SVI training ==")
 
         epochs, lr = hyperparams["epochs"], hyperparams["lr"]
 
@@ -198,28 +204,23 @@ class BNN(nn.Module):
             total_loss = 0.0
             correct_predictions = 0.0
             accuracy = 0.0
-            total = 0.0
+            count = 0.0
 
             n_inputs = 0
             for x_batch, y_batch in train_loader:
                 n_inputs += len(x_batch)
                 x_batch = x_batch.to(device)
-                y_batch = y_batch.to(device).argmax(-1)
-                total += y_batch.size(0)
+                labels = y_batch.to(device).argmax(-1)
+                count += len(x_batch)
 
                 outputs = self.forward(x_batch).to(device)
-                loss = svi.step(x_data=x_batch, y_data=y_batch)
+                loss = svi.step(x_data=x_batch, y_data=labels)
 
-                predictions = outputs.argmax(dim=1)
-                total_loss += loss / len(train_loader.dataset)
-                correct_predictions += (predictions == y_batch).sum()
-                accuracy = 100 * correct_predictions / len(train_loader.dataset)
-
-            # if DEBUG:
-            #   print("\nmodule$$$l2.0.weight should be fixed:\n",
-            #         pyro.get_param_store()["module$$$l2.0.weight"][0][0][:3])
-            #   print("\noutw_mu should change:\n", pyro.get_param_store()["outw_mu"][:3])
-
+                predictions = outputs.argmax(dim=-1)
+                total_loss += loss / len(x_batch)
+                correct_predictions += (predictions == labels).sum()
+            
+                accuracy = 100 * correct_predictions / count
             print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
                   end="\t")
 
@@ -240,7 +241,7 @@ class BNN(nn.Module):
         elif self.inference == "hmc":
             self._train_hmc(train_loader, hyperparams, device)
 
-    def evaluate(self, test_loader, n_samples, device):
+    def evaluate(self, test_loader, device, n_samples=100):
         self.to(device)
         self.net.to(device)
         random.seed(0)
@@ -266,7 +267,7 @@ class BNN(nn.Module):
 def main(args):
 
     train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=args.dataset, batch_size=128, 
+                            data_loaders(dataset_name=args.dataset, batch_size=64, 
                                          n_inputs=args.inputs, shuffle=True)
 
     data, ep, lr, hid, act, arc, inf = (args.dataset, args.epochs, args.lr, args.hidden_size,
@@ -277,8 +278,8 @@ def main(args):
     hyperparams = bnn.get_hyperparams(args)
     bnn.train(train_loader=train_loader, hyperparams=hyperparams, device=args.device)
     # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
-    bnn.evaluate(test_loader=test_loader, n_samples=args.n_samples, device=args.device)
-    
+    bnn.evaluate(test_loader=test_loader, device=args.device)
+
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
@@ -286,12 +287,12 @@ if __name__ == "__main__":
 
     parser.add_argument("--inputs", default=100, type=int)
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--hidden_size", default=64, type=int, help="power of 2")
+    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2")
     parser.add_argument("--activation", default="leaky", type=str, help="leaky, sigm, tanh")
     parser.add_argument("--architecture", default="conv", type=str, help="conv, fc, fc2")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--n_samples", default=5, type=int)
+    parser.add_argument("--samples", default=10, type=int)
     parser.add_argument("--warmup", default=5, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")  
