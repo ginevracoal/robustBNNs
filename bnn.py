@@ -63,14 +63,20 @@ class BNN(nn.Module):
         state_dict = self.net.state_dict()
         priors = {}
         for key, value in state_dict.items():
-            prior = Normal(loc=torch.zeros_like(value), scale=torch.ones_like(value))
+            loc = torch.zeros_like(value)
+            scale = torch.ones_like(value)
+            prior = Normal(loc=loc, scale=scale).independent(1) 
             priors.update({str(key):prior})
 
         lifted_module = pyro.random_module("module", self.net, priors)()
 
         with pyro.plate("data", len(x_data)):
             logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
-            y_data = nnf.one_hot(y_data).double() if y_data is not None else None
+
+            ### label
+            # obs = pyro.sample("obs", Categorical(logits=logits), obs=y_data)
+            ### one-hot encoding
+            # y_data = nnf.one_hot(y_data).double() if y_data is not None else None
             obs = pyro.sample("obs", OneHotCategorical(logits=logits), obs=y_data)
 
         if DEBUG:
@@ -87,17 +93,14 @@ class BNN(nn.Module):
 
         priors = {}
         for key, value in state_dict.items():
-            loc = pyro.param(str(f"{key}_loc"), 0.01*torch.randn_like(value)) #0.01*
-            scale = softplus(pyro.param(str(f"{key}_scale"), 0.1*torch.randn_like(value))) #0.1*
-            prior = Normal(loc=loc, scale=scale)
+            loc = pyro.param(str(f"{key}_loc"), torch.randn_like(value)) #0.01*
+            scale = softplus(pyro.param(str(f"{key}_scale"), torch.randn_like(value))) #0.1*
+            prior = Normal(loc=loc, scale=scale).independent(1) 
             priors.update({str(key):prior})
 
         lifted_module = pyro.random_module("module", self.net, priors)()
 
-        with pyro.plate("data", len(x_data)):
-            logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
-
-        return logits
+        return lifted_module
  
     def save(self, hyperparams):
 
@@ -139,15 +142,23 @@ class BNN(nn.Module):
         self.net.to(device)
 
     def forward(self, inputs, n_samples=1):
-        random.seed(0)
-        pyro.set_rng_seed(0)
 
         if self.inference == "svi":
 
             preds = []
-            for i in range(n_samples):
-                guide_trace = poutine.trace(self.guide).get_trace(inputs)   
-                preds.append(guide_trace.nodes['_RETURN']['value'])
+
+            for _ in range(n_samples):
+
+                ### v1
+                # guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                # preds.append(guide_trace.nodes['_RETURN']['value'](inputs))
+                
+                ### v2
+                sampled_model = self.guide(None, None)
+                preds.append(sampled_model(inputs).data)
+                # print(preds[0])
+                # print(preds[0].shape)
+                # exit()
 
             if DEBUG:
                 print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
@@ -160,11 +171,11 @@ class BNN(nn.Module):
 
                     weights = self.posterior_samples[str(f"module$$${key}_{i}")]
                     self.net.state_dict().update({str(key):weights})
-
                     preds.append(self.net.forward(inputs))
     
-        pred = torch.stack(preds, dim=0)
-        return pred.mean(0) 
+        exp_prediction = torch.stack(preds, dim=0).mean(0) 
+        # print(exp_prediction.shape, exp_prediction[0])
+        return exp_prediction
 
     def _train_hmc(self, train_loader, hyperparams, device):
         print("\n == HMC training ==")
@@ -205,7 +216,7 @@ class BNN(nn.Module):
         epochs, lr = hyperparams["epochs"], hyperparams["lr"]
 
         optimizer = pyro.optim.Adam({"lr":lr})
-        elbo = TraceMeanField_ELBO()
+        elbo = Trace_ELBO()
         svi = SVI(self.model, self.guide, optimizer, loss=elbo)
 
         loss_list = []
@@ -220,11 +231,13 @@ class BNN(nn.Module):
 
                 x_batch = x_batch.to(device)
                 labels = y_batch.to(device).argmax(-1)
-                loss += svi.step(x_data=x_batch, y_data=labels)
+                loss += svi.step(x_data=x_batch, y_data=y_batch.to(device)) #labels
 
                 outputs = self.forward(x_batch).to(device)
                 predictions = outputs.argmax(dim=-1)
                 correct_predictions += (predictions == labels).sum()
+                
+                # print("\n\n",predictions[:10],"\n", labels[:10])
             
             loss = loss / len(train_loader.dataset)
             accuracy = 100 * correct_predictions / len(train_loader.dataset)
@@ -307,7 +320,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
     parser.add_argument("--hidden_size", default=32, type=int, help="power of 2 >= 16")
     parser.add_argument("--activation", default="leaky", type=str, help="leaky, sigm, tanh")
-    parser.add_argument("--architecture", default="conv", type=str, help="conv, fc, fc2")
+    parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
     parser.add_argument("--epochs", default=10, type=int)
     parser.add_argument("--samples", default=10, type=int)
