@@ -66,15 +66,20 @@ class BNN(nn.Module):
             prior = Normal(loc=torch.zeros_like(value), scale=torch.ones_like(value))
             priors.update({str(key):prior})
 
-        # if DEBUG:
-        #     print(state_dict.keys())
-        #     print("\n", priors)
-        
         lifted_module = pyro.random_module("module", self.net, priors)()
-        lhat = F.log_softmax(lifted_module(x_data), dim=-1)
-        cond_model = pyro.sample("obs", Categorical(logits=lhat), obs=y_data)
 
-        return cond_model
+        with pyro.plate("data", len(x_data)):
+            logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
+            y_data = nnf.one_hot(y_data).double() if y_data is not None else None
+            obs = pyro.sample("obs", OneHotCategorical(logits=logits), obs=y_data)
+
+        if DEBUG:
+            print(state_dict.keys())
+            print(priors)
+            print(pyro.sample("categ", OneHotCategorical(logits)))
+            print(y_data)
+
+        return obs
 
     def guide(self, x_data, y_data=None):
 
@@ -82,13 +87,16 @@ class BNN(nn.Module):
 
         priors = {}
         for key, value in state_dict.items():
-            loc = pyro.param(str(f"{key}_loc"), 0.01*torch.randn_like(value))
-            scale = softplus(pyro.param(str(f"{key}_scale"), 0.1*torch.randn_like(value)))
+            loc = pyro.param(str(f"{key}_loc"), 0.01*torch.randn_like(value)) #0.01*
+            scale = softplus(pyro.param(str(f"{key}_scale"), 0.1*torch.randn_like(value))) #0.1*
             prior = Normal(loc=loc, scale=scale)
             priors.update({str(key):prior})
 
         lifted_module = pyro.random_module("module", self.net, priors)()
-        logits = F.log_softmax(lifted_module(x_data), dim=-1)
+
+        with pyro.plate("data", len(x_data)):
+            logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
+
         return logits
  
     def save(self, hyperparams):
@@ -130,18 +138,9 @@ class BNN(nn.Module):
         self.to(device)
         self.net.to(device)
 
-    # def predict(self, inputs, n_samples=10):
-    #     sampled_models = [self.guide(None, None) for _ in range(n_samples)]
-    #     outputs = [self.model(inputs).data for model in sampled_models]
-    #     mean = outputs.mean(0)
-    #     return mean.argmax(-1)
-
-    def forward(self, inputs):
-        return self.net.forward(inputs)
-
-    def predict(self, inputs, n_samples=10):
-        # random.seed(0)
-        # pyro.set_rng_seed(0)
+    def forward(self, inputs, n_samples=1):
+        random.seed(0)
+        pyro.set_rng_seed(0)
 
         if self.inference == "svi":
 
@@ -216,16 +215,14 @@ class BNN(nn.Module):
         for epoch in range(epochs):
             loss = 0.0
             correct_predictions = 0.0
-            accuracy = 0.0
 
-            n_inputs = 0
             for x_batch, y_batch in train_loader:
-                n_inputs += len(x_batch)
+
                 x_batch = x_batch.to(device)
                 labels = y_batch.to(device).argmax(-1)
                 loss += svi.step(x_data=x_batch, y_data=labels)
 
-                outputs = self.predict(x_batch).to(device)
+                outputs = self.forward(x_batch).to(device)
                 predictions = outputs.argmax(dim=-1)
                 correct_predictions += (predictions == labels).sum()
             
@@ -245,8 +242,7 @@ class BNN(nn.Module):
 
         execution_time(start=start, end=time.time())
 
-        hyperparams = {"epochs":epochs, "lr":lr}    
-        self.save(hyperparams=hyperparams)
+        self.save(hyperparams={"epochs":epochs, "lr":lr})
 
         plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
                            path=TESTS+self.name+"/"+self.name+"_training.png")
@@ -263,7 +259,7 @@ class BNN(nn.Module):
         elif self.inference == "hmc":
             self._train_hmc(train_loader, hyperparams, device)
 
-    def evaluate(self, test_loader, device, n_samples=100):
+    def evaluate(self, test_loader, device, n_samples=10):
         self.to(device)
         self.net.to(device)
         random.seed(0)
@@ -276,10 +272,10 @@ class BNN(nn.Module):
             for x_batch, y_batch in test_loader:
 
                 x_batch = x_batch.to(device)
-                y_batch = y_batch.to(device).argmax(-1)
-                outputs = self.predict(x_batch, n_samples=n_samples)
+                labels = y_batch.to(device).argmax(-1)
+                outputs = self.forward(x_batch, n_samples=n_samples)
                 predictions = outputs.argmax(dim=1)
-                correct_predictions += (predictions == y_batch).sum()
+                correct_predictions += (predictions == labels).sum()
 
             accuracy = 100 * correct_predictions / len(test_loader.dataset)
             print("\nAccuracy: %.2f%%" % (accuracy))
@@ -309,7 +305,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--inputs", default=100, type=int)
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2")
+    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2 >= 16")
     parser.add_argument("--activation", default="leaky", type=str, help="leaky, sigm, tanh")
     parser.add_argument("--architecture", default="conv", type=str, help="conv, fc, fc2")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
