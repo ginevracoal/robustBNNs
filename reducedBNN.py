@@ -249,7 +249,7 @@ class redBNN(nn.Module):
 		self.to(device)
 		self.net.to(device)
 
-	def forward(self, inputs, n_samples=10):
+	def forward(self, inputs, n_samples=100):
 
 		if self.inference == "svi":
 
@@ -275,7 +275,8 @@ class redBNN(nn.Module):
 				print("\nself.net.state_dict() keys = ", self.net.state_dict().keys())
 
 			preds = []
-			for i in range(len(self.posterior_samples)):
+			n_samples = min(n_samples, len(self.posterior_samples["module$$$out.weight"]))
+			for i in range(n_samples):
 				state_dict = self.net.state_dict()
 				out_w = self.posterior_samples["module$$$out.weight"][i]
 				out_b = self.posterior_samples["module$$$out.bias"][i]
@@ -288,6 +289,7 @@ class redBNN(nn.Module):
 						  self.net.state_dict()["l2.0.weight"][0,0,:3])
 					print("\nout.weight should change:\n", self.net.state_dict()["out.weight"][0][:3])	
 		
+		print(f"{n_samples} post samp", end="\t")
 		pred = torch.stack(preds, dim=0)
 		return pred.mean(0) 
 

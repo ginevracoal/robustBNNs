@@ -28,10 +28,9 @@ DEBUG=False
 
 def regularized_cross_entropy(net, x, y, lam):
 	x_copy = copy.deepcopy(x)
-	print("x_clone", x_copy.shape)
 	x_copy.requires_grad = True
-	log_prob = -1.0 * F.log_softmax(x_copy, 1)
-	print(log_prob.shape, y.shape)
+	log_prob = -1.0 * F.log_softmax(net.forward(x_copy), dim=1)
+	# print(log_prob.shape, y.shape)
 	loss = log_prob.gather(1, y.long())
 	loss = loss.mean()
 	print("loss=", loss)
@@ -39,12 +38,12 @@ def regularized_cross_entropy(net, x, y, lam):
 	net_copy.zero_grad()
 	loss.backward()
 	print(x_copy.grad())
+	exit()
 	loss_gradient = copy.deepcopy(x_copy.grad.data[0])
 	loss_gradient_norm = np.max(np.abs(loss_gradient))
 
 	reg_loss = loss + lam*loss_gradient_norm
 	print(reg_loss)
-	exit()
 	x.requires_grad = False
 	return reg_loss
 
@@ -57,7 +56,7 @@ class BRNN(nn.Module):
 		self.dataset_name = dataset_name
 		self.inference = inference
 		self.lam = lam
-		self.criterion = lambda net, x, y, lam: regularized_cross_entropy(net, x, y, lam)
+		self.criterion = regularized_cross_entropy
 
 	def get_hyperparams(self, args):
 
@@ -230,6 +229,9 @@ class BRNN(nn.Module):
 
 	def _train_sgd(self, images, labels, lr):
 		print("\n --- SGD step --")
+
+		# print(self.base_net)
+		# exit()
 
 		optimizer = torchopt.Adam(params=self.base_net.parameters(), lr=lr)
 		optimizer.zero_grad()
