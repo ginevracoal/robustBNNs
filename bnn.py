@@ -25,37 +25,31 @@ DEBUG = False
 
 class BNN(PyroModule):
 
-    def __init__(self, dataset_name, input_shape, output_size, hidden_size, activation, 
-                 architecture, inference):
+    def __init__(self, dataset_name, hidden_size, activation, architecture, inference, 
+                 epochs, lr, n_samples, warmup, input_shape, output_size):
         super(BNN, self).__init__()
         self.dataset_name = dataset_name
         self.inference = inference
         self.architecture = architecture
-        self.net = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size, 
-                      hidden_size=hidden_size, activation=activation, architecture=architecture)
+        self.epochs = epochs
+        self.lr = lr
+        self.n_samples = n_samples
+        self.warmup = warmup
+        self.net = NN(dataset_name=dataset_name, input_shape=input_shape, 
+                      output_size=output_size, hidden_size=hidden_size, 
+                      activation=activation, architecture=architecture)
+        self.name = self.get_name(epochs, lr, n_samples, warmup)
 
-    def get_hyperparams(self, args):
-
-        if self.inference == "svi":
-            return {"epochs":args.epochs, "lr":args.lr}
-
-        elif self.inference == "hmc":
-            return {"n_samples":args.samples, "warmup":args.warmup}
-
-    def get_name(self, hyperparams):
+    def get_name(self, epochs, lr, n_samples, warmup):
         
         name = str(self.dataset_name)+"_bnn_"+str(self.inference)+"_hid="+\
                str(self.net.hidden_size)+"_act="+str(self.net.activation)+\
                "_arch="+str(self.net.architecture)
 
         if self.inference == "svi":
-            name = name+"_ep="+str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])
-
+            return name+"_ep="+str(epochs)+"_lr="+str(lr)
         elif self.inference == "hmc":
-            name = name+"_samp="+str(hyperparams["n_samples"])+"_warm="+str(hyperparams["warmup"])
-
-        self.name = name
-        return name
+            return name+"_samp="+str(n_samples)+"_warm="+str(warmup)
 
     def model(self, x_data, y_data):
 
@@ -72,9 +66,9 @@ class BNN(PyroModule):
             logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
             obs = pyro.sample("obs", Categorical(logits=logits), obs=y_data)
 
-        # if DEBUG:
-        # print("\nlogits =", logits[0])
-        # print("obs =", obs[0])
+        if DEBUG:
+            print("\nlogits =", logits[0])
+            print("obs =", obs[0])
 
         return logits
 
@@ -94,9 +88,9 @@ class BNN(PyroModule):
 
         return logits
 
-    def save(self, hyperparams):
+    def save(self):
 
-        name = self.get_name(hyperparams)
+        name = self.name
         path = TESTS + name +"/"
         filename = name+"_weights"
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -114,15 +108,16 @@ class BNN(PyroModule):
             self.to("cpu")
             save_to_pickle(data=self.posterior_samples, path=path, filename=filename+".pkl")
 
-    def load(self, hyperparams, device, rel_path=TESTS):
-
-        name = self.get_name(hyperparams)
+    def load(self, device, rel_path=TESTS):
+        name = self.name
         path = rel_path + name +"/"
         filename = name+"_weights"
 
         if self.inference == "svi":
             param_store = pyro.get_param_store()
             param_store.load(path + filename + ".pt")
+            for key, value in param_store.items():
+                param_store.replace_param(key, value.to(device), value)
             print("\nLoading ", path + filename + ".pt\n")
 
         elif self.inference == "hmc":
@@ -159,18 +154,17 @@ class BNN(PyroModule):
                     preds.append(self.net.forward(inputs))
     
         exp_prediction = torch.stack(preds, dim=0).mean(0)
-        exp_prediction = nnf.one_hot(exp_prediction.argmax(-1), 10)
+        exp_prediction = exp_prediction.argmax(-1)
+        exp_prediction = nnf.one_hot(exp_prediction, 10)
         return exp_prediction
 
-    def _train_hmc(self, train_loader, hyperparams, device):
+    def _train_hmc(self, train_loader, n_samples, warmup, device):
         print("\n == HMC training ==")
-
-        n_samples, warmup_steps = (hyperparams["n_samples"], hyperparams["warmup"])
 
         kernel = HMC(self.model, step_size=0.0855, num_steps=4)
         batch_samples = int(n_samples*train_loader.batch_size/len(train_loader.dataset))+1
         print("\nSamples per batch =", batch_samples, ", Total samples =", n_samples)
-        mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup_steps, num_chains=1)
+        mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup, num_chains=1)
 
         start = time.time()
         sample_idx = 0
@@ -199,12 +193,10 @@ class BNN(PyroModule):
         if DEBUG:
             print(self.posterior_samples.keys())
 
-        self.save(hyperparams=hyperparams)
+        self.save()
 
-    def _train_svi(self, train_loader, hyperparams, device):
+    def _train_svi(self, train_loader, epochs, lr, device):
         print("\n == SVI training ==")
-
-        epochs, lr = hyperparams["epochs"], hyperparams["lr"]
 
         optimizer = pyro.optim.Adam({"lr":lr})
         elbo = TraceMeanField_ELBO()
@@ -222,11 +214,6 @@ class BNN(PyroModule):
 
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
-            
-                # DEBUG 
-                # for key, val in poutine.trace(self.guide).get_trace(x_batch, y_batch).nodes.items():
-                #     print("\n", key, "\t", val['args'][1].shape)
-
                 loss += svi.step(x_data=x_batch, y_data=y_batch.argmax(dim=-1))
 
                 outputs = self.forward(x_batch).to(device)
@@ -234,8 +221,9 @@ class BNN(PyroModule):
                 labels = y_batch.argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()
             
-            # print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
-            # print("\n",predictions[:10],"\n", labels[:10])
+            if DEBUG:
+                print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
+                print("\n",predictions[:10],"\n", labels[:10])
 
             total_loss = loss / len(train_loader.dataset)
             accuracy = 100 * correct_predictions / len(train_loader.dataset)
@@ -247,27 +235,28 @@ class BNN(PyroModule):
             accuracy_list.append(accuracy)
 
         execution_time(start=start, end=time.time())
-        self.save(hyperparams={"epochs":epochs, "lr":lr})
+        self.save()
 
         plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
                            path=TESTS+self.name+"/"+self.name+"_training.png")
 
 
-    def train(self, train_loader, hyperparams, device):
+    def train(self, train_loader, device):
         self.to(device)
         self.net.to(device)
         random.seed(0)
         pyro.set_rng_seed(0)
 
         if self.inference == "svi":
-            self._train_svi(train_loader, hyperparams, device)
+            self._train_svi(train_loader, self.epochs, self.lr, device)
 
         elif self.inference == "hmc":
-            self._train_hmc(train_loader, hyperparams, device)
+            self._train_hmc(train_loader, self.n_samples, self.warmup, device)
 
     def evaluate(self, test_loader, device, n_samples=10):
         self.to(device)
         self.net.to(device)
+        
         random.seed(0)
         pyro.set_rng_seed(0)
 
@@ -278,8 +267,8 @@ class BNN(PyroModule):
             for x_batch, y_batch in test_loader:
 
                 x_batch = x_batch.to(device)
-                outputs = self.forward(x_batch, n_samples=n_samples)
-                predictions = outputs.argmax(dim=1)
+                outputs = self.forward(x_batch, n_samples=n_samples).to(device)
+                predictions = outputs.argmax(-1)
                 labels = y_batch.to(device).argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()
 
@@ -290,18 +279,20 @@ class BNN(PyroModule):
 
 def main(args):
 
+    init = (args.dataset, args.hidden_size, args.activation, args.architecture, 
+              args.inference, args.epochs, args.lr, args.samples, args.warmup)
+    
+    init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
+
     train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=args.dataset, batch_size=64, 
+                            data_loaders(dataset_name=init[0], batch_size=64, 
                                          n_inputs=args.inputs, shuffle=True)
 
-    data, ep, lr, hid, act, arc, inf = (args.dataset, args.epochs, args.lr, args.hidden_size,
-                                        args.activation, args.architecture, args.inference)       
-    bnn = BNN(dataset_name=data, input_shape=inp_shape, output_size=out_size, 
-              hidden_size=hid, activation=act, architecture=arc, inference=inf)
+    bnn = BNN(*init, inp_shape, out_size)
+   
+    # bnn.train(train_loader=train_loader, device=args.device)
+    bnn.load(device=args.device, rel_path=DATA)
 
-    hyperparams = bnn.get_hyperparams(args)
-    bnn.train(train_loader=train_loader, hyperparams=hyperparams, device=args.device)
-    # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
     bnn.evaluate(test_loader=test_loader, device=args.device)
 
 
