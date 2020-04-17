@@ -50,7 +50,11 @@ def fgsm_attack(model, image, label, n_samples, epsilon=0.3):
     image.requires_grad = True
 
     # output = model.forward(image)
-    output = model.forward(image, n_samples) if n_samples else model.forward(image) 
+    if n_samples:
+        output = model.forward(image, n_samples, return_logits=True)
+    else:
+        output = model.forward(image, return_logits=True)
+         
     loss = torch.nn.CrossEntropyLoss()(output, label)
     model.zero_grad()
     loss.backward()
@@ -165,9 +169,9 @@ def main(args):
     x_test = torch.from_numpy(x_test)
     y_test = torch.from_numpy(y_test)
 
-    dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)    
-    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
-    nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
+    # dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)    
+    # nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
+    # nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
 
     # x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
     #                   device=args.device, method=args.attack, filename=nn.filename)
@@ -177,17 +181,14 @@ def main(args):
 
     # === BNN ===
 
-    inference, hidden_size, activation, architecture, hyperparams = \
-       ("svi", 32, "leaky", "conv", {"epochs":10,"lr":0.001})
+    init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
 
-    bnn = BNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-              hidden_size=hidden_size, activation=activation, architecture=architecture, 
-              inference=inference)
-    bnn.load(hyperparams=hyperparams, device=args.device)
+    bnn = BNN(*init, inp_shape, out_size)
+    bnn.load(device=args.device)
 
     for attack_samples in [1, 10, 50]:
         x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
-                          device=args.device, method=args.attack, filename=nn.filename, 
+                          device=args.device, method=args.attack, filename=bnn.name, 
                           n_samples=attack_samples)
 
         for defence_samples in [attack_samples, 100]:

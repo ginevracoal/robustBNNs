@@ -128,7 +128,7 @@ class BNN(PyroModule):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=10):
+    def forward(self, inputs, n_samples=10, return_logits=False):
 
         if self.inference == "svi":
 
@@ -153,10 +153,11 @@ class BNN(PyroModule):
                     self.net.state_dict().update({str(key):weights})
                     preds.append(self.net.forward(inputs))
     
-        exp_prediction = torch.stack(preds, dim=0).mean(0)
-        exp_prediction = exp_prediction.argmax(-1)
+        logits = torch.stack(preds, dim=0).mean(0)
+        exp_prediction = logits.argmax(-1)
         exp_prediction = nnf.one_hot(exp_prediction, 10)
-        return exp_prediction
+        
+        return logits if return_logits==True else exp_prediction
 
     def _train_hmc(self, train_loader, n_samples, warmup, device):
         print("\n == HMC training ==")
@@ -256,14 +257,12 @@ class BNN(PyroModule):
     def evaluate(self, test_loader, device, n_samples=10):
         self.to(device)
         self.net.to(device)
-        
         random.seed(0)
         pyro.set_rng_seed(0)
 
         with torch.no_grad():
 
             correct_predictions = 0.0
-
             for x_batch, y_batch in test_loader:
 
                 x_batch = x_batch.to(device)
@@ -282,7 +281,7 @@ def main(args):
     init = (args.dataset, args.hidden_size, args.activation, args.architecture, 
               args.inference, args.epochs, args.lr, args.samples, args.warmup)
     
-    init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
+    # init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=init[0], batch_size=64, 
@@ -290,8 +289,8 @@ def main(args):
 
     bnn = BNN(*init, inp_shape, out_size)
    
-    # bnn.train(train_loader=train_loader, device=args.device)
-    bnn.load(device=args.device, rel_path=DATA)
+    bnn.train(train_loader=train_loader, device=args.device)
+    # bnn.load(device=args.device, rel_path=DATA)
 
     bnn.evaluate(test_loader=test_loader, device=args.device)
 
