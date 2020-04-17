@@ -1,3 +1,5 @@
+import sys
+sys.path.append(".")
 from directories import *
 from lossGradients import *
 import matplotlib
@@ -11,9 +13,6 @@ def gradient_components(loss_gradients_list, n_samples_list, dataset_name, filen
 
     matplotlib.rc('font', **{'weight': 'bold', 'size': 12})
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 5), dpi=150, facecolor='w', edgecolor='k')
-    # cmap = sns.cubehelix_palette(n_colors=10, start=0.8, rot=0.1, light=0.9, hue=1.5, as_cmap=True)
-    # cmap = sns.color_palette("ch:0.8,r=.1,l=.9")
-    # sns.set_palette(cmap)
     sns.set_palette("gist_heat", 5)
 
     loss_gradients_components = []
@@ -34,7 +33,7 @@ def gradient_components(loss_gradients_list, n_samples_list, dataset_name, filen
     ax.set_xlabel("")
 
     # ax.set_yscale('log')
-    # ax.set_title("MNIST", fontsize=10)
+    # ax.set_title("", fontsize=10)
 
     fig.text(0.5, 0.01, "Samples involved in the expectations ($w \sim p(w|D)$)", ha='center')
     fig.text(0.03, 0.5, r"Expected Gradients components $\langle\nabla L(x,w)\rangle_{w}$", 
@@ -88,15 +87,6 @@ def vanishing_gradients_heatmaps(loss_gradients_list, n_samples_list, filename, 
         fig.savefig(path+filename+"_vanGrad_"+str(im_idx)+".png")
         plt.close()
 
-def loss_accuracy(dict, path):
-    fig, (ax1, ax2) = plt.subplots(2, figsize=(12,8))
-    ax1.plot(dict['loss'])
-    ax1.set_title("loss")
-    ax2.plot(dict['accuracy'])
-    ax2.set_title("accuracy")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fig.savefig(path)
-
 
 def main(args):
 
@@ -104,13 +94,10 @@ def main(args):
         data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs, shuffle=True)
 
     # === load BNN ===
-    inference, hidden_size, activation, architecture, hyperparams = \
-       ("svi", 32, "leaky", "conv", {"epochs":10,"lr":0.001})
+    init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
 
-    bnn = BNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-              hidden_size=hidden_size, activation=activation, architecture=architecture, 
-              inference=inference)
-    bnn.load(hyperparams=hyperparams, device=args.device)
+    bnn = BNN(*init, inp_shape, out_size)
+    bnn.load(device=args.device, rel_path=DATA)
     filename = bnn.name
 
     # === load base NN ===
@@ -126,7 +113,7 @@ def main(args):
     # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS, device=args.device)
     
     # === compute loss gradients ===
-    n_samples_list = [1,5,10]
+    n_samples_list = [1,10,50]
 
     loss_gradients_list = []
     for posterior_samples in n_samples_list:
