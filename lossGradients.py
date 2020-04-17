@@ -1,5 +1,5 @@
-from directories import *
 import sys
+from directories import *
 import argparse
 from tqdm import tqdm
 import torch
@@ -48,14 +48,16 @@ def loss_gradients(net, data_loader, device, filename, n_samples=None):
     print(f"\nexp_mean = {loss_gradients.mean()} \t exp_std = {loss_gradients.std()}")
 
     loss_gradients = loss_gradients.cpu().detach().numpy().squeeze()
-    save_loss_gradients(loss_gradients, filename)
+    save_loss_gradients(loss_gradients, filename, n_samples)
     return loss_gradients
 
-def save_loss_gradients(loss_gradients, filename):
-    save_to_pickle(data=loss_gradients, path=TESTS+filename+"/", filename=filename+"_lossGrads.pkl")
+def save_loss_gradients(loss_gradients, filename, n_samples):
+    save_to_pickle(data=loss_gradients, path=TESTS+filename+"/", 
+        filename=filename+"_samp="+str(n_samples)+"_lossGrads.pkl")
 
 def load_loss_gradients(inference, n_inputs, n_samples, filename, relpath=DATA):
-    return load_from_pickle(path=relpath+filename+"/"+filename+"_lossGrads.pkl")
+    path = relpath+filename+"/"+filename+"_samp="+str(n_samples)+"_lossGrads.pkl"
+    return load_from_pickle(path=path)
 
 def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
     if loss_gradients.shape[1] != len(n_samples_list):
@@ -99,16 +101,14 @@ def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
 def main(args):
 
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs, shuffle=False)
+        data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs, 
+                     shuffle=False)
 
     # === load BNN ===
-    inference, hidden_size, activation, architecture, hyperparams = \
-       ("svi", 32, "leaky", "conv", {"epochs":10,"lr":0.001})
+    init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
 
-    bnn = BNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-              hidden_size=hidden_size, activation=activation, architecture=architecture, 
-              inference=inference)
-    bnn.load(hyperparams=hyperparams, device=args.device)
+    bnn = BNN(*init, inp_shape, out_size)
+    bnn.load(device=args.device, rel_path=DATA)
     filename = bnn.name
 
     # === load base NN ===
@@ -124,9 +124,8 @@ def main(args):
     # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS, device=args.device)
     
     # === compute loss gradients ===
-    n_samples_list = [1,10,50]#,100,500]
 
-    for posterior_samples in n_samples_list:
+    for posterior_samples in [1,10,50]:#,100,500]:
         loss_gradients(net=bnn, n_samples=posterior_samples, 
                        data_loader=test_loader, device=args.device, filename=filename)
     

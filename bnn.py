@@ -20,7 +20,8 @@ import torch.distributions.constraints as constraints
 softplus = torch.nn.Softplus()
 from pyro.nn import PyroModule
 
-DEBUG = False
+DEBUG=False
+RETURN_LOGITS=False
 
 
 class BNN(PyroModule):
@@ -128,7 +129,7 @@ class BNN(PyroModule):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=10, return_logits=False):
+    def forward(self, inputs, n_samples=10, return_logits=True):
 
         if self.inference == "svi":
 
@@ -156,7 +157,7 @@ class BNN(PyroModule):
         logits = torch.stack(preds, dim=0).mean(0)
         exp_prediction = logits.argmax(-1)
         exp_prediction = nnf.one_hot(exp_prediction, 10)
-        
+
         return logits if return_logits==True else exp_prediction
 
     def _train_hmc(self, train_loader, n_samples, warmup, device):

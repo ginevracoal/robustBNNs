@@ -19,6 +19,8 @@ DEBUG=False
 # robustness measures #
 #######################
 
+# todo:debug
+
 def softmax_difference(original_predictions, adversarial_predictions):
     """
     Compute the expected l-inf norm of the difference between predictions and adversarial predictions.
@@ -51,10 +53,10 @@ def fgsm_attack(model, image, label, n_samples, epsilon=0.3):
 
     # output = model.forward(image)
     if n_samples:
-        output = model.forward(image, n_samples, return_logits=True)
+        output = model.forward(image, n_samples)
     else:
-        output = model.forward(image, return_logits=True)
-         
+        output = model.forward(image)
+
     loss = torch.nn.CrossEntropyLoss()(output, label)
     model.zero_grad()
     loss.backward()
@@ -117,7 +119,10 @@ def load_attack(model, method, filename, n_samples=None, rel_path=TESTS):
     return load_from_pickle(path=path)
 
 def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
-    print(f"\nEvaluating against the attacks:")
+    print(f"\nEvaluating against the attacks", end="")
+    if n_samples:
+        print(f"with {n_samples} defence samples:")
+
     random.seed(0)
     pyro.set_rng_seed(0)
     
@@ -154,7 +159,7 @@ def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
 
         original_outputs = torch.cat(original_outputs)
         adversarial_outputs = torch.cat(adversarial_outputs)
-        softmax_rob = softmax_robustness(original_outputs, adversarial_outputs)
+        softmax_robustness(original_outputs, adversarial_outputs)
 
 
 ########
@@ -173,27 +178,26 @@ def main(args):
     # nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
     # nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
 
-    # x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
-    #                   device=args.device, method=args.attack, filename=nn.filename)
-    # x_attack = load_attack(model=nn, method=args.attack, rel_path=DATA)
+    # # x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
+    # #                   device=args.device, method=args.attack, filename=nn.filename)
+    # x_attack = load_attack(model=nn, method=args.attack, rel_path=DATA, filename=nn.filename)
 
     # attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
     # === BNN ===
-
     init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
 
     bnn = BNN(*init, inp_shape, out_size)
-    bnn.load(device=args.device)
+    bnn.load(device=args.device, rel_path=DATA)
 
-    for attack_samples in [1, 10, 50]:
+    for attack_samples in [50]:
         x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
                           device=args.device, method=args.attack, filename=bnn.name, 
                           n_samples=attack_samples)
 
         for defence_samples in [attack_samples, 100]:
             attack_evaluation(model=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
-                              device=args.device, n_samples=attack_samples)
+                              device=args.device, n_samples=defence_samples)
 
     exit()
     # === redBNN ===
