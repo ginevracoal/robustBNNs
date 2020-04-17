@@ -27,8 +27,9 @@ class NN(nn.Module):
 
         self.name = self.get_name(dataset_name, hidden_size, activation, architecture)
         self.set_model(architecture, activation, input_shape, output_size, hidden_size)
-        # print("\nTotal number of network weights =", sum(p.numel() for p in self.parameters()))
-        print("\nBase net:", self)
+        print("\nBase net:\n", self)
+        print("\nTotal number of weights =", sum(p.numel() for p in self.parameters()))
+        # [print(p.shape) for p in self.parameters()]
 
     def get_name(self, dataset_name, hidden_size, activation, architecture):
         return str(dataset_name)+"_nn_hid="+str(hidden_size)+"_act="+str(activation)+\
@@ -40,17 +41,23 @@ class NN(nn.Module):
         in_channels = input_shape[0]
         n_classes = output_size
 
-        if activation == "leaky":
+        if activation == "relu":
+            activ = nn.ReLU
+        elif activation == "leaky":
             activ = nn.LeakyReLU
         elif activation == "sigm":
             activ = nn.Sigmoid
         elif activation == "tanh":
             activ = nn.Tanh
+        else: 
+            raise AssertionError("\nWrong activation name.")
 
         if architecture == "fc":
             self.model = nn.Sequential(
                 nn.Flatten(),
                 nn.Linear(input_size, hidden_size),
+                activ(),
+                nn.Linear(hidden_size, hidden_size),
                 activ(),
                 nn.Linear(hidden_size, n_classes))
 
@@ -58,6 +65,8 @@ class NN(nn.Module):
             self.model = nn.Sequential(
                 nn.Flatten(),
                 nn.Linear(input_size, hidden_size),
+                activ(),
+                nn.Linear(hidden_size, hidden_size),
                 activ(),
                 nn.Linear(hidden_size, hidden_size),
                 activ(),
@@ -78,7 +87,7 @@ class NN(nn.Module):
 
     def forward(self, inputs):
         x = self.model(inputs)
-        return nn.Softmax(dim=-1)(x)
+        return nn.LogSoftmax(dim=-1)(x)
 
     def save(self, epochs, lr):
         name = self.name +"_ep="+str(epochs)+"_lr="+str(lr)
@@ -166,7 +175,7 @@ class NN(nn.Module):
 def main(args):
 
     train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=args.dataset, batch_size=128, 
+                            data_loaders(dataset_name=args.dataset, batch_size=64, 
                                          n_inputs=args.inputs, shuffle=True)
 
     dataset, epochs, lr, rel_path = (args.dataset, args.epochs, args.lr, TESTS)       
@@ -183,9 +192,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Base NN")
 
     parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--hidden_size", default=64, type=int, help="power of 2")
-    parser.add_argument("--activation", default="leaky", type=str, help="leaky, sigm, tanh")
-    parser.add_argument("--architecture", default="conv", type=str, help="conv, fc, fc2")
+    parser.add_argument("--hidden_size", default=16, type=int, help="power of 2")
+    parser.add_argument("--activation", default="leaky", type=str, help="relu, leaky, sigm, tanh")
+    parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--epochs", default=10, type=int)

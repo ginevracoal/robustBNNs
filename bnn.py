@@ -7,24 +7,23 @@ import torch
 from torch import nn
 import torch.nn.functional as nnf
 import numpy as np
-from pyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
+from pyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO, Predictive
 import torch.optim as torchopt
 from pyro import poutine
 import pyro.optim as pyroopt
 import torch.nn.functional as F
 from pyro.infer.mcmc import MCMC, HMC, NUTS
-from pyro.infer.mcmc.util import predictive
-from pyro.infer.abstract_infer import TracePredictive
-from pyro.distributions import OneHotCategorical, Normal, Categorical
+from pyro.distributions import OneHotCategorical, Normal, Categorical, Uniform
 from nn import NN
 from utils import plot_loss_accuracy
+import torch.distributions.constraints as constraints
 softplus = torch.nn.Softplus()
-
+from pyro.nn import PyroModule
 
 DEBUG = False
 
 
-class BNN(nn.Module):
+class BNN(PyroModule):
 
     def __init__(self, dataset_name, input_shape, output_size, hidden_size, activation, 
                  architecture, inference):
@@ -60,48 +59,41 @@ class BNN(nn.Module):
 
     def model(self, x_data, y_data):
 
-        state_dict = self.net.state_dict()
         priors = {}
-        for key, value in state_dict.items():
+        for key, value in self.net.state_dict().items():
             loc = torch.zeros_like(value)
             scale = torch.ones_like(value)
-            prior = Normal(loc=loc, scale=scale).independent(1) 
+            prior = Normal(loc=loc, scale=scale)
             priors.update({str(key):prior})
 
         lifted_module = pyro.random_module("module", self.net, priors)()
 
         with pyro.plate("data", len(x_data)):
             logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
+            obs = pyro.sample("obs", Categorical(logits=logits), obs=y_data)
 
-            ### label
-            # obs = pyro.sample("obs", Categorical(logits=logits), obs=y_data)
-            ### one-hot encoding
-            # y_data = nnf.one_hot(y_data).double() if y_data is not None else None
-            obs = pyro.sample("obs", OneHotCategorical(logits=logits), obs=y_data)
+        # if DEBUG:
+        # print("\nlogits =", logits[0])
+        # print("obs =", obs[0])
 
-        if DEBUG:
-            print(state_dict.keys())
-            print(priors)
-            print(pyro.sample("categ", OneHotCategorical(logits)))
-            print(y_data)
-
-        return obs
+        return logits
 
     def guide(self, x_data, y_data=None):
 
-        state_dict = self.net.state_dict()
+        dists = {}
+        for key, value in self.net.state_dict().items():
+            loc = pyro.param(str(f"{key}_loc"), torch.randn_like(value)) 
+            scale = pyro.param(str(f"{key}_scale"), torch.randn_like(value))
+            distr = Normal(loc=loc, scale=softplus(scale))
+            dists.update({str(key):distr})
 
-        priors = {}
-        for key, value in state_dict.items():
-            loc = pyro.param(str(f"{key}_loc"), torch.randn_like(value)) #0.01*
-            scale = softplus(pyro.param(str(f"{key}_scale"), torch.randn_like(value))) #0.1*
-            prior = Normal(loc=loc, scale=scale).independent(1) 
-            priors.update({str(key):prior})
+        lifted_module = pyro.random_module("module", self.net, dists)()
 
-        lifted_module = pyro.random_module("module", self.net, priors)()
+        with pyro.plate("data", len(x_data)):
+            logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
 
-        return lifted_module
- 
+        return logits
+
     def save(self, hyperparams):
 
         name = self.get_name(hyperparams)
@@ -141,40 +133,33 @@ class BNN(nn.Module):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=1):
+    def forward(self, inputs, n_samples=10):
 
         if self.inference == "svi":
 
-            preds = []
-
+            preds = []  
             for _ in range(n_samples):
-
-                ### v1
-                # guide_trace = poutine.trace(self.guide).get_trace(inputs)   
-                # preds.append(guide_trace.nodes['_RETURN']['value'](inputs))
-                
-                ### v2
-                sampled_model = self.guide(None, None)
-                preds.append(sampled_model(inputs).data)
-                # print(preds[0])
-                # print(preds[0].shape)
-                # exit()
+                guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                preds.append(guide_trace.nodes['_RETURN']['value'])
 
             if DEBUG:
+                print("\nlearned variational params:\n")
+                print(pyro.get_param_store().get_all_param_names())
                 print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
+                print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
+                print(guide_trace.nodes['module$$$model.1.weight']["fn"].loc[0][:5])
 
         elif self.inference == "hmc":
 
             preds = []
             for key, value in self.net.state_dict().items():
                 for i in range(n_samples):
-
                     weights = self.posterior_samples[str(f"module$$${key}_{i}")]
                     self.net.state_dict().update({str(key):weights})
                     preds.append(self.net.forward(inputs))
     
-        exp_prediction = torch.stack(preds, dim=0).mean(0) 
-        # print(exp_prediction.shape, exp_prediction[0])
+        exp_prediction = torch.stack(preds, dim=0).mean(0)
+        exp_prediction = nnf.one_hot(exp_prediction.argmax(-1), 10)
         return exp_prediction
 
     def _train_hmc(self, train_loader, hyperparams, device):
@@ -189,25 +174,31 @@ class BNN(nn.Module):
 
         start = time.time()
         sample_idx = 0
-        posterior_samples = {}
+        correct_predictions = 0.0
+        self.posterior_samples = {}
 
         for x_batch, y_batch in train_loader:
             x_batch = x_batch.to(device)
-            y_batch = y_batch.to(device).argmax(-1)
+            y_batch = y_batch.to(device)
+
             mcmc.run(x_batch, y_batch)
             
-            for idx in range(batch_samples):
+            for i in range(batch_samples):
                 for k, v in mcmc.get_samples().items():
-                    posterior_samples.update({f"{k}_{sample_idx}":v[idx]})
-                
+                    self.posterior_samples.update({f"{k}_{sample_idx}":v[i]})
                 sample_idx += 1
-                       
+
+            outputs = self.forward(x_batch, n_samples=batch_samples).to(device)
+            predictions = outputs.argmax(dim=-1)
+            labels = y_batch.argmax(-1)
+            correct_predictions += (predictions == labels).sum().item()
+     
+        print(f"\nTrain accuracy: {100 * correct_predictions / len(train_loader.dataset):.2f}")                  
         execution_time(start=start, end=time.time())
 
         if DEBUG:
-            print(posterior_samples.keys())
+            print(self.posterior_samples.keys())
 
-        self.posterior_samples = posterior_samples
         self.save(hyperparams=hyperparams)
 
     def _train_svi(self, train_loader, hyperparams, device):
@@ -216,7 +207,7 @@ class BNN(nn.Module):
         epochs, lr = hyperparams["epochs"], hyperparams["lr"]
 
         optimizer = pyro.optim.Adam({"lr":lr})
-        elbo = Trace_ELBO()
+        elbo = TraceMeanField_ELBO()
         svi = SVI(self.model, self.guide, optimizer, loss=elbo)
 
         loss_list = []
@@ -230,35 +221,37 @@ class BNN(nn.Module):
             for x_batch, y_batch in train_loader:
 
                 x_batch = x_batch.to(device)
-                labels = y_batch.to(device).argmax(-1)
-                loss += svi.step(x_data=x_batch, y_data=y_batch.to(device)) #labels
+                y_batch = y_batch.to(device)
+            
+                # DEBUG 
+                # for key, val in poutine.trace(self.guide).get_trace(x_batch, y_batch).nodes.items():
+                #     print("\n", key, "\t", val['args'][1].shape)
+
+                loss += svi.step(x_data=x_batch, y_data=y_batch.argmax(dim=-1))
 
                 outputs = self.forward(x_batch).to(device)
                 predictions = outputs.argmax(dim=-1)
-                correct_predictions += (predictions == labels).sum()
-                
-                # print("\n\n",predictions[:10],"\n", labels[:10])
+                labels = y_batch.argmax(-1)
+                correct_predictions += (predictions == labels).sum().item()
             
-            loss = loss / len(train_loader.dataset)
+            # print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
+            # print("\n",predictions[:10],"\n", labels[:10])
+
+            total_loss = loss / len(train_loader.dataset)
             accuracy = 100 * correct_predictions / len(train_loader.dataset)
 
-            if DEBUG:
-                print(pyro.get_param_store().get_all_param_names())
-                print(outputs[:3][:5])
-                print(pyro.get_param_store()["model.0.weight_loc"][0][:5])
-
-            print(f"\n[Epoch {epoch + 1}]\t loss: {loss:.8f} \t accuracy: {accuracy:.2f}", 
+            print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.2f} \t accuracy: {accuracy:.2f}", 
                   end="\t")
 
             loss_list.append(loss)
             accuracy_list.append(accuracy)
 
         execution_time(start=start, end=time.time())
-
         self.save(hyperparams={"epochs":epochs, "lr":lr})
 
         plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
                            path=TESTS+self.name+"/"+self.name+"_training.png")
+
 
     def train(self, train_loader, hyperparams, device):
         self.to(device)
@@ -285,10 +278,10 @@ class BNN(nn.Module):
             for x_batch, y_batch in test_loader:
 
                 x_batch = x_batch.to(device)
-                labels = y_batch.to(device).argmax(-1)
                 outputs = self.forward(x_batch, n_samples=n_samples)
                 predictions = outputs.argmax(dim=1)
-                correct_predictions += (predictions == labels).sum()
+                labels = y_batch.to(device).argmax(-1)
+                correct_predictions += (predictions == labels).sum().item()
 
             accuracy = 100 * correct_predictions / len(test_loader.dataset)
             print("\nAccuracy: %.2f%%" % (accuracy))
@@ -316,10 +309,10 @@ if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="BNN")
 
-    parser.add_argument("--inputs", default=100, type=int)
+    parser.add_argument("--inputs", default=1000, type=int)
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2 >= 16")
-    parser.add_argument("--activation", default="leaky", type=str, help="leaky, sigm, tanh")
+    parser.add_argument("--hidden_size", default=128, type=int, help="power of 2 >= 16")
+    parser.add_argument("--activation", default="leaky", type=str, help="relu, leaky, sigm, tanh")
     parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
     parser.add_argument("--epochs", default=10, type=int)
