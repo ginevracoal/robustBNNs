@@ -57,9 +57,7 @@ class NN(nn.Module):
                 nn.Flatten(),
                 nn.Linear(input_size, hidden_size),
                 activ(),
-                nn.Linear(hidden_size, hidden_size),
-                activ(),
-                nn.Linear(hidden_size, n_classes))
+                nn.Linear(hidden_size, output_size))
 
         elif architecture == "fc2":
             self.model = nn.Sequential(
@@ -68,9 +66,7 @@ class NN(nn.Module):
                 activ(),
                 nn.Linear(hidden_size, hidden_size),
                 activ(),
-                nn.Linear(hidden_size, hidden_size),
-                activ(),
-                nn.Linear(hidden_size, n_classes))
+                nn.Linear(hidden_size, output_size))
 
         elif architecture == "conv":
             self.model = nn.Sequential(
