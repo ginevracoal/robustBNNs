@@ -31,16 +31,17 @@ def data_loaders(dataset_name, batch_size, n_inputs, channels="first", shuffle=T
     x_train, y_train, x_test, y_test, input_shape, num_classes = \
         load_dataset(dataset_name=dataset_name, n_inputs=n_inputs, channels=channels)
 
-    train_loader = DataLoader(dataset=list(zip(x_train, y_train)), batch_size=batch_size, shuffle=shuffle)
-    test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=batch_size, shuffle=shuffle)
-
+    train_loader = DataLoader(dataset=list(zip(x_train, y_train)), batch_size=batch_size, 
+                              shuffle=shuffle)
+    test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=batch_size, 
+                             shuffle=shuffle)
     num_classes = 10
 
     return train_loader, test_loader, input_shape, num_classes
 
 def classwise_data_loaders(dataset_name, batch_size, n_inputs, shuffle=False):
     random.seed(0)
-    x_train, y_train, x_test, y_test, input_shape, num_classes, data_format = \
+    x_train, y_train, x_test, y_test, input_shape, num_classes = \
         load_dataset(dataset_name=dataset_name)
 
     train_loaders = []
@@ -63,7 +64,7 @@ def classwise_data_loaders(dataset_name, batch_size, n_inputs, shuffle=False):
         train_loaders.append(train_loader)
         test_loaders.append(test_loader)
 
-    return train_loaders, test_loaders, data_format, input_shape
+    return train_loaders, test_loaders, input_shape, num_classes
 
 def load_fashion_mnist(channels, img_rows=28, img_cols=28):
     print("\nLoading fashion mnist.")
@@ -228,5 +229,11 @@ def unpickle(file):
         data = pkl.load(f, encoding='latin-1')
     return data
 
-
-
+def plot_loss_accuracy(dict, path):
+    fig, (ax1, ax2) = plt.subplots(2, figsize=(12,8))
+    ax1.plot(dict['loss'])
+    ax1.set_title("loss")
+    ax2.plot(dict['accuracy'])
+    ax2.set_title("accuracy")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fig.savefig(path)
