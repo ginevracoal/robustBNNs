@@ -7,8 +7,9 @@ import copy
 from utils import save_to_pickle, load_from_pickle, data_loaders
 import numpy as np
 import pyro
-from bnn import BNN
+from bnn import BNN, saved_bnns
 from reducedBNN import NN, redBNN
+
 
 DEBUG=False
 
@@ -23,9 +24,9 @@ def loss_gradient(net, image, label, n_samples=None):
 
     net_copy = copy.deepcopy(net)
 
-    if n_samples:
+    if n_samples: # bayesian
         output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
-    else:
+    else: # non bayesian
         output = net_copy.forward(inputs=x_copy) 
 
     loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
@@ -35,12 +36,13 @@ def loss_gradient(net, image, label, n_samples=None):
     loss_gradient = copy.deepcopy(x_copy.grad.data[0])
     return loss_gradient
 
-def loss_gradients(net, data_loader, device, filename, n_samples=None):
+def loss_gradients(net, data_loader, device, filename, savedir, n_samples=None):
     print(f"\n === Loss gradients on {len(data_loader.dataset)} input images:")
 
     loss_gradients = []
     for images, labels in tqdm(data_loader):
         for i in range(len(images)):
+            # pointwise loss gradients
             loss_gradients.append(loss_gradient(net=net, n_samples=n_samples,
                                   image=images[i].to(device), label=labels[i].to(device)))
 
@@ -48,15 +50,15 @@ def loss_gradients(net, data_loader, device, filename, n_samples=None):
     print(f"\nexp_mean = {loss_gradients.mean()} \t exp_std = {loss_gradients.std()}")
 
     loss_gradients = loss_gradients.cpu().detach().numpy().squeeze()
-    save_loss_gradients(loss_gradients, filename, n_samples)
+    save_loss_gradients(loss_gradients, n_samples, filename, savedir)
     return loss_gradients
 
-def save_loss_gradients(loss_gradients, filename, n_samples):
-    save_to_pickle(data=loss_gradients, path=TESTS+filename+"/", 
-        filename=filename+"_samp="+str(n_samples)+"_lossGrads.pkl")
+def save_loss_gradients(loss_gradients, n_samples, filename, savedir):
+    save_to_pickle(data=loss_gradients, path=TESTS+savedir, 
+                   filename=filename+"_samp="+str(n_samples)+"_lossGrads.pkl")
 
-def load_loss_gradients(inference, n_inputs, n_samples, filename, relpath=DATA):
-    path = relpath+filename+"/"+filename+"_samp="+str(n_samples)+"_lossGrads.pkl"
+def load_loss_gradients(n_samples, filename, savedir, relpath=DATA):
+    path = relpath+savedir+filename+"_samp="+str(n_samples)+"_lossGrads.pkl"
     return load_from_pickle(path=path)
 
 def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
@@ -105,9 +107,11 @@ def main(args):
                      shuffle=False)
 
     # === load BNN ===
-    init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
+    hidden_size, activation, architecture, inference, \
+    epochs, lr, samples, warmup = saved_bnns[args.dataset]
 
-    bnn = BNN(*init, inp_shape, out_size)
+    bnn = BNN(args.dataset, hidden_size, activation, architecture, inference,
+              epochs, lr, samples, warmup, inp_shape, out_size)
     bnn.load(device=args.device, rel_path=DATA)
     filename = bnn.name
 
@@ -126,9 +130,9 @@ def main(args):
     # === compute loss gradients ===
 
     for posterior_samples in [1,10,50]:#,100,500]:
-        loss_gradients(net=bnn, n_samples=posterior_samples, 
+        loss_gradients(net=bnn, n_samples=posterior_samples, dirname=filename, 
                        data_loader=test_loader, device=args.device, filename=filename)
-    
+
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')

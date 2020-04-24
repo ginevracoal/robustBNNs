@@ -24,6 +24,10 @@ DEBUG=False
 RETURN_LOGITS=False
 
 
+saved_bnns = {"mnist":(512, "leaky", "conv", "svi", 5, 0.01, None, None), # 96%
+              "fashion_mnist":None}
+
+
 class BNN(PyroModule):
 
     def __init__(self, dataset_name, hidden_size, activation, architecture, inference, 
@@ -155,8 +159,9 @@ class BNN(PyroModule):
                     preds.append(self.net.forward(inputs))
     
         logits = torch.stack(preds, dim=0).mean(0)
-        exp_prediction = logits.argmax(-1)
-        exp_prediction = nnf.one_hot(exp_prediction, 10)
+        labels = logits.argmax(-1)
+        exp_prediction = nnf.one_hot(labels, 10)
+        # print(logits[0], labels[0], exp_prediction[0])
 
         return logits if return_logits==True else exp_prediction
 
@@ -283,6 +288,7 @@ def main(args):
               args.inference, args.epochs, args.lr, args.samples, args.warmup)
     
     # init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
+    # init = ("fashion_mnist", 1024, "leaky", "conv", "svi", 10, 0.001, None, None) # 76%
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=init[0], batch_size=64, 
@@ -291,7 +297,7 @@ def main(args):
     bnn = BNN(*init, inp_shape, out_size)
    
     bnn.train(train_loader=train_loader, device=args.device)
-    # bnn.load(device=args.device, rel_path=DATA)
+    # bnn.load(device=args.device, rel_path=TESTS)
 
     bnn.evaluate(test_loader=test_loader, device=args.device)
 
@@ -301,9 +307,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BNN")
 
     parser.add_argument("--inputs", default=1000, type=int)
-    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
+    parser.add_argument("--dataset", default="mnist", type=str, 
+                        help="mnist, fashion_mnist, cifar")
     parser.add_argument("--hidden_size", default=128, type=int, help="power of 2 >= 16")
-    parser.add_argument("--activation", default="leaky", type=str, help="relu, leaky, sigm, tanh")
+    parser.add_argument("--activation", default="leaky", type=str, 
+                        help="relu, leaky, sigm, tanh")
     parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
     parser.add_argument("--epochs", default=10, type=int)
