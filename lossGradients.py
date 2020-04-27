@@ -14,7 +14,7 @@ from reducedBNN import NN, redBNN
 DEBUG=False
 
 
-def loss_gradient(net, image, label, n_samples=None):
+def loss_gradient_old(net, image, label, n_samples=None):
 
     image = image.unsqueeze(0)
     label = label.argmax(-1).unsqueeze(0)
@@ -26,6 +26,12 @@ def loss_gradient(net, image, label, n_samples=None):
 
     if n_samples: # bayesian
         output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
+
+        # output = []
+        # for i in range(n_samples):
+        #     output.append(net_copy.forward(inputs=x_copy, n_samples=1))
+        # output = torch.stack(output,0).mean(0)
+
     else: # non bayesian
         output = net_copy.forward(inputs=x_copy) 
 
@@ -47,7 +53,7 @@ def loss_gradients(net, data_loader, device, filename, savedir, n_samples=None):
                                   image=images[i].to(device), label=labels[i].to(device)))
 
     loss_gradients = torch.stack(loss_gradients)
-    print(f"\nexp_mean = {loss_gradients.mean()} \t exp_std = {loss_gradients.std()}")
+    print(f"\nmean = {loss_gradients.mean():.4f} \t var = {loss_gradients.var():.4f}")
 
     loss_gradients = loss_gradients.cpu().detach().numpy().squeeze()
     save_loss_gradients(loss_gradients, n_samples, filename, savedir)

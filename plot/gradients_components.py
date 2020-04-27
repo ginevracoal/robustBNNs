@@ -19,7 +19,8 @@ def gradient_components(loss_gradients_list, n_samples_list, dataset_name, filen
     for samples_idx, n_samples in enumerate(n_samples_list):
         print("\n\nsamples = ", n_samples, end="\t")
 
-        print(f"\nexp_mean = {loss_gradients_list[samples_idx].mean()} \t exp_std = {loss_gradients_list[samples_idx].std()}")
+        print(f"\tmean = {loss_gradients_list[samples_idx].mean():.4f}", end="\t") 
+        print(f"var = {loss_gradients_list[samples_idx].var():.4f}")
 
         avg_loss_gradient = np.array(loss_gradients_list[samples_idx]).flatten()
         loss_gradients_components.extend(avg_loss_gradient)
