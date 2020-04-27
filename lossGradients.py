@@ -108,7 +108,7 @@ def main(args):
 
     # === load BNN ===
     hidden_size, activation, architecture, inference, \
-    epochs, lr, samples, warmup = saved_bnns[args.dataset]
+        epochs, lr, samples, warmup = saved_bnns[args.dataset]
 
     bnn = BNN(args.dataset, hidden_size, activation, architecture, inference,
               epochs, lr, samples, warmup, inp_shape, out_size)
@@ -130,7 +130,7 @@ def main(args):
     # === compute loss gradients ===
 
     for posterior_samples in [1,10,50]:#,100,500]:
-        loss_gradients(net=bnn, n_samples=posterior_samples, dirname=filename, 
+        loss_gradients(net=bnn, n_samples=posterior_samples, savedir=filename+"/", 
                        data_loader=test_loader, device=args.device, filename=filename)
 
 
