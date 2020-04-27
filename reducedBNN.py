@@ -37,7 +37,8 @@ class NN(nn.Module):
 									nn.MaxPool2d(kernel_size=2))
 			self.l2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=5),
 									nn.LeakyReLU(),
-									nn.MaxPool2d(kernel_size=2))
+									nn.MaxPool2d(kernel_size=2),#)
+									nn.Flatten())
 			self.out = nn.Linear(4*4*64, output_size)
 		else:
 			raise NotImplementedError()
@@ -49,13 +50,10 @@ class NN(nn.Module):
 	def forward(self, inputs):
 		x = inputs
 
-		if self.dataset_name == "mnist":
-			x = self.l1(x)
-			x = self.l2(x)
-			x = x.view(x.size(0), -1)
-			x = self.out(x)
-		else:
-			raise NotImplementedError()
+		x = self.l1(x)
+		x = self.l2(x)
+		# x = x.view(x.size(0), -1)
+		x = self.out(x)
 
 		output = nn.Softmax(dim=-1)(x)
 		return output
@@ -75,7 +73,7 @@ class NN(nn.Module):
 		filename = self.get_filename(epochs, lr)
 		print("\nLoading: ", rel_path+filename+"/"+filename+"_weights.pt")
 		self.load_state_dict(torch.load(rel_path+filename+"/"+filename+"_weights.pt"))
-		print("\n", list(self.state_dict().keys()), "\n")
+		# print("\n", list(self.state_dict().keys()), "\n")
 		self.to(device)
 
 		if DEBUG:
