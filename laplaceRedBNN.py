@@ -48,7 +48,7 @@ class LaplaceRedBNN(redBNN):
 
     def guide(self, x_data, y_data=None):
         delta_guide = AutoLaplaceApproximation(self.model)
-        return guide
+        return delta_guide
 
     def _train_svi(self, train_loader, hyperparams, device):
 
@@ -56,7 +56,7 @@ class LaplaceRedBNN(redBNN):
 
         optimizer = pyro.optim.Adam({"lr":lr})
         elbo = Trace_ELBO()
-        delta_guide = AutoLaplaceApproximation(self.model)
+        delta_guide = AutoLaplaceApproximation(self.model).to(device)
         svi = SVI(self.model, delta_guide, optimizer, loss=elbo)
 
         start = time.time()
@@ -69,15 +69,18 @@ class LaplaceRedBNN(redBNN):
             n_inputs = 0
             for x_batch, y_batch in train_loader:
                 x_batch = x_batch.to(device)
-                # scrivere meglio
+                y_batch = y_batch.to(device)
+
                 out_batch = self.net.l2(self.net.l1(x_batch))
                 loss = svi.step(x_data=out_batch, y_data=y_batch)
-                self.guide = delta_guide#.get_posterior()#laplace_approximation(out_batch, y_batch)
+
+                self.guide = delta_guide
+                # self.guide = delta_guide.laplace_approximation(out_batch, y_batch)
                 
                 n_inputs += len(x_batch)
-                outputs = self.forward(out_batch).to(device)
+                outputs = self.forward(x_batch)
                 predictions = outputs.argmax(dim=1)
-                labels = y_batch.to(device).argmax(-1)
+                labels = y_batch.argmax(-1)
                 total += y_batch.size(0)
                 total_loss += loss / len(train_loader.dataset)
                 correct_predictions += (predictions == labels).sum()
@@ -90,35 +93,23 @@ class LaplaceRedBNN(redBNN):
 
         hyperparams = {"epochs":epochs, "lr":lr}    
         self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
-
+ 
     def train(self, train_loader, epochs, lr, device):
         hyperparams = {"epochs":epochs, "lr":lr}
         super(LaplaceRedBNN, self).train(train_loader=train_loader, 
                                          hyperparams=hyperparams, device=device)
 
     def forward(self, inputs, n_samples=10):
-
-        print(type(self.guide))
-        print(self.guide(inputs).get_posterior())
-        exit()
-        posterior_dist = self.guide(inputs).get_posterior()
-        print("posterior_dist",posterior_dist)
-        unconstrained_samples = posterior_dist.sample(sample_shape)
-        print("unconstrained_samples",unconstrained_samples)
-
-        # predictive = Predictive(model=self.model, guide=self.guide, num_samples=n_samples,
-        #                         return_sites=("w","b","sigma"))
-        # svi_samples = {k: v.detach().numpy() for k, v in predictive(inputs, None).items()}
-        # print(svi_samples)
-        # exit()
-
-
-        # w = pyro.get_param_store()["w"]
-        # b = pyro.get_param_store()["b"]
-        # preds = (w * output.t()).sum(1) + b
+        out_batch = self.net.l2(self.net.l1(inputs))
+        predictive = Predictive(model=self.model, guide=self.guide, num_samples=n_samples,
+                                return_sites=("w","b","obs"))
+        preds = predictive(out_batch, None)["obs"]
+        return preds.mean(0)
 
 
 def main(args):
+    if args.device=="cuda":
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     # === load dataset ===
     train_loader, test_loader, inp_shape, out_size = \
@@ -141,7 +132,6 @@ def main(args):
                         output_size=out_size, base_net=nn)
 
     bnn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
-
     bnn.evaluate(test_loader=test_loader, device=args.device)
 
 
@@ -154,7 +144,7 @@ if __name__ == "__main__":
                         help="mnist, fashion_mnist, cifar")
     parser.add_argument("--activation", default="leaky", type=str, 
                         help="relu, leaky, sigm, tanh")
-    parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
+    parser.add_argument("--architecture", default="conv", type=str, help="conv, fc, fc2")
     parser.add_argument("--epochs", default=10, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")  

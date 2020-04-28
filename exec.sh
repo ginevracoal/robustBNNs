@@ -2,18 +2,18 @@
 
 # ------ settings -------- #
 
-INPUTS="10000"
-DATASET="mnist" # mnist, cifar, fashion_mnist
+INPUTS="60000"
+DATASET="fashion_mnist" # mnist, cifar, fashion_mnist
 DEVICE="cuda" # cpu, cuda
 
-ARCHITECTURE="conv" # fc, fc2, conv
-ACTIVATION="leaky" # leaky, sigm, tanh
-HIDDEN_SIZE=32
+ARCHITECTURE="fc2" # fc, fc2, conv
+ACTIVATION="tanh" # relu, leaky, sigm, tanh
+HIDDEN_SIZE=2048
 
-INFERENCE="hmc" # svi, hmc
+INFERENCE="svi" # svi, hmc
 
-EPOCHS=50
-LR=0.001
+EPOCHS=80
+LR=0.0001 
 
 WARMUP=10
 N_SAMPLES=20
@@ -37,6 +37,7 @@ python3 bnn.py --inputs=$INPUTS --dataset=$DATASET --architecture=$ARCHITECTURE 
 # python3 adversarialAttacks.py --attack=$ATTACK --inputs=$INPUTS --dataset=$DATASET --inference=$INFERENCE --epochs=$EPOCHS --lr=$LR --samples=$N_SAMPLES --warmup=$WARMUP --device=$DEVICE &>> $OUT
 
 # python3 lossGradients.py  --inputs=$INPUTS --dataset=$DATASET --inference=$INFERENCE --epochs=$EPOCHS --lr=$LR --samples=$N_SAMPLES --warmup=$WARMUP --device=$DEVICE &>> $OUT
+
 # python3 plot/gradients_components.py  --inputs=$INPUTS --dataset=$DATASET --inference=$INFERENCE --epochs=$EPOCHS --lr=$LR --samples=$N_SAMPLES --warmup=$WARMUP --device=$DEVICE &>> $OUT
 
 deactivate
