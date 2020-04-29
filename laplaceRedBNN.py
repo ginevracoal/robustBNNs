@@ -17,7 +17,8 @@ from reducedBNN import redBNN, NN
 from pyro.contrib.autoguide import AutoLaplaceApproximation
 from pyro.nn import PyroModule
 
-saved_LaplaceRedBNNs = {}
+saved_baseNNs = {"mnist": (20, 0.001)}
+saved_LaplaceRedBNNs = {"mnist": (60000, 23, 0.001)}
 
 
 class LaplaceRedBNN(redBNN):
@@ -27,6 +28,10 @@ class LaplaceRedBNN(redBNN):
                                             "svi", base_net)
         self.dataset_name = dataset_name
         self.net = base_net
+
+    def get_filename(self, n_inputs, epochs, lr):
+        return str(self.dataset_name)+"_LaplaceRedBNN_inp="+str(n_inputs)+"_ep="+\
+               str(epochs)+"_lr="+str(lr)
 
     def model(self, x_data, y_data):
         net = self.net
@@ -66,7 +71,6 @@ class LaplaceRedBNN(redBNN):
 
                 out_batch = self.net.l2(self.net.l1(x_batch))
                 loss = svi.step(x_data=out_batch, y_data=y_batch)
-                
                 outputs = self.forward(x_batch)
                 predictions = outputs.argmax(dim=1)
                 labels = y_batch.argmax(-1)
@@ -80,8 +84,9 @@ class LaplaceRedBNN(redBNN):
                   end="\t")
 
         execution_time(start=start, end=time.time())
-        hyperparams = {"epochs":epochs, "lr":lr}    
-        self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
+        self.save(n_inputs=len(train_loader.dataset), epochs=epochs, lr=lr)
+        # hyperparams = {"epochs":epochs, "lr":lr}    
+        # self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
  
     def train(self, train_loader, epochs, lr, device):
         hyperparams = {"epochs":epochs, "lr":lr}
@@ -92,13 +97,26 @@ class LaplaceRedBNN(redBNN):
         out_batch = self.net.l2(self.net.l1(inputs))
         predictive = Predictive(model=self.model, guide=self.delta_guide, 
                                 num_samples=n_samples, return_sites=("w","b","obs"))
-        
         w = predictive(out_batch, None)["w"].mean(0)
         b = predictive(out_batch, None)["b"].mean(0)
         yhat = torch.matmul(out_batch, w.t()) + b 
         preds = F.log_softmax(yhat, dim=-1)
         return preds
 
+    def save(self, n_inputs, epochs, lr):
+        name = self.get_filename(n_inputs=n_inputs, epochs=epochs, lr=lr)
+        path = TESTS+name+"/"
+        filename = name+"_guide.pkl"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        print("\nSaving: ", path+filename)
+        save_to_pickle(self.delta_guide, path, filename)
+
+    def load(self, n_inputs, epochs, lr, device, rel_path):
+        # hyperparams = {"epochs":epochs, "lr":lr}
+        # super(LaplaceRedBNN, self).load(n_inputs=n_inputs, hyperparams=hyperparams, 
+        #                                 device=device, rel_path=rel_path)
+        name = self.get_filename(n_inputs=n_inputs, epochs=epochs, lr=lr)
+        self.delta_guide = load_from_pickle(TESTS+name+"/"+name+"_guide.pkl")
 
 def main(args):
     if args.device=="cuda":
@@ -109,22 +127,22 @@ def main(args):
                             data_loaders(dataset_name=args.dataset, batch_size=128, 
                                          n_inputs=args.inputs, shuffle=True)
     # === base NN ===
+    epochs, lr = saved_baseNNs[args.dataset]
 
-    dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)  
-
-    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
+    nn = NN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size)
     # nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
-    nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
+    nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=DATA)
     # nn.evaluate(test_loader=test_loader, device=args.device)
 
     # === LaplaceRedBNN ===
-
-    # init = saved_LaplaceRedBNN[args.dataset]
+    # inputs, epochs, lr = (args.inputs, args.epochs, args.lr)
+    inputs, epochs, lr = saved_LaplaceRedBNNs[args.dataset]
                             
     bnn = LaplaceRedBNN(dataset_name=args.dataset, input_shape=inp_shape, 
                         output_size=out_size, base_net=nn)
 
-    bnn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
+    # bnn.train(train_loader=train_loader, epochs=epochs, lr=lr, device=args.device)
+    bnn.load(n_inputs=inputs, epochs=epochs, lr=lr, device=args.device, rel_path=DATA)
     bnn.evaluate(test_loader=test_loader, device=args.device)
 
 
