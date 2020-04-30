@@ -20,6 +20,7 @@ from bnn import BNN
 import pandas
 import itertools
 from lossGradients import loss_gradients, load_loss_gradients
+import matplotlib
 
 
 class MoonsBNN(BNN):
@@ -39,6 +40,7 @@ def _train_and_compute_grads(hidden_size, activation, architecture, inference,
     bnn = MoonsBNN(hidden_size, activation, architecture, inference, 
                    epochs, lr, n_samples, warmup, n_inputs, inp_shape, out_size)
     bnn.train(train_loader=train_loader, device="cpu")
+    # bnn.load(device="cpu", rel_path=TESTS)
 
     _, test_loader, _, _ = \
         data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=10000, shuffle=True)
@@ -58,65 +60,66 @@ def parallel_grid_search(hidden_size, activation, architecture, inference,
         delayed(_train_and_compute_grads)(*init) for init in combinations)
 
 
-def build_dataset(hidden_size, activation, architecture, inference, 
-          epochs, lr, n_samples, warmup, n_inputs, posterior_samples, device="cuda"):
+def build_dataset(hidden_size, activation, architecture, inference, epochs, lr, n_samples, 
+                  warmup, n_inputs, posterior_samples, device="cuda", test_points=10000):
 
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=10000, shuffle=True)
+        data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=test_points, shuffle=True)
 
     combinations = list(itertools.product(hidden_size, activation, architecture, inference, 
                       epochs, lr, n_samples, warmup, n_inputs))
     
     cols = ["hidden_size", "activation", "architecture", "inference", "epochs", "lr", 
-            "n_samples", "warmup", "n_inputs", "posterior_samples"]
+            "n_samples", "warmup", "n_inputs", "posterior_samples", "test_acc",
+            "loss_gradients_components"]
     df = pandas.DataFrame(columns=cols)
 
+    row_count = 0
     for init in combinations:
 
         bnn = MoonsBNN(*init, inp_shape, out_size)
         bnn.load(device=device, rel_path=TESTS)
         
-        for idx, p_samp in enumerate(posterior_samples):
+        for p_samp in posterior_samples:
             bnn_dict = {cols[k]:val for k, val in enumerate(init)}
 
             test_acc = bnn.evaluate(test_loader=test_loader, device=device, n_samples=p_samp)
             loss_grads = load_loss_gradients(n_samples=p_samp, filename=bnn.name, 
-                                             savedir=bnn.name+"/", relpath=TESTS)          
-            bnn_dict.update({"test_acc":test_acc, "loss_gradients":loss_grads, 
-                             "posterior_samples":p_samp})
+                                             savedir=bnn.name+"/", relpath=TESTS) 
+            loss_gradients_components = loss_grads[:test_points].flatten()
+            for value in loss_gradients_components:
+                bnn_dict.update({"posterior_samples":p_samp, "test_acc":test_acc,
+                                 "loss_gradients_components":value})
+                df.loc[row_count] = pandas.Series(bnn_dict)
+                row_count += 1
 
-            df.loc[idx] = pandas.Series(bnn_dict)
-
-    dataset.to_csv(TESTS+"halfMoons_lossGrads_gridSearch.csv", index = False, header=True)
+    print("\nSaving:", df.head())
+    df.to_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv", 
+              index = False, header=True)
     return df
 
-def scatterplot_gridSearch_gradComponents(dataset, device="cuda", n_df_rows=100):
+def scatterplot_gridSearch_gradComponents(dataset, device="cuda", test_points=100):
 
     sns.set()
     matplotlib.rc('font', **{'weight': 'bold', 'size': 12})
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 5), dpi=150, facecolor='w', edgecolor='k')
-    sns.set_palette("cool",2)
+    sns.set_palette("gist_heat", 5)
 
-    cols = ["loss_gradients_components","test_accuracy","posterior_samples","hidden_size"]
-    components_df = pandas.DataFrame(columns=cols)
+    g = sns.scatterplot(data=dataset, x="test_acc", y="loss_gradients_components", 
+                        hue="posterior_samples", alpha=0.9, #style="hidden_size", 
+                        ax=ax)
+    g.set(xlim=(60, None))
 
-    for idx, row in dataset.head(n_df_rows).iterrows():
-        loss_gradients_components = row["loss_gradients"].flatten()
-        for value in loss_gradients_components:
-            components_df.append({"loss_gradients_components":value,
-                                  "test_accuracy":row["test_accuracy"],
-                                  "posterior_samples":row["posterior_samples"],
-                                  "hidden_size":row["hidden_size"]})
-
-    g = sns.scatterplot(data=components_df, x="test_accuracy", y="loss_gradients_components", 
-                        hue="posterior_samples", alpha=0.9, style="hidden_size", ax=ax)
-    # g.set(xlim=(60, None))
-
+    ax.set_xlabel("")
+    ax.set_ylabel("")
     fig.text(0.5, 0.01, 'Test accuracy (%) ', ha='center', fontsize=12)
     fig.text(0.03, 0.5, 'Expected loss gradients components', va='center',fontsize=12,
                                                                rotation='vertical')
+    # ax.legend(loc='upper right')
 
-    ax.legend(loc='upper right', title="n. posterior samples")
+    filename = "halfMoons_lossGradsComponents_"+str(test_points)+".png"
+    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
+    plt.savefig(TESTS + filename)
 
 
 def main(args):
@@ -141,7 +144,7 @@ def main(args):
 
     # === grid search + plot ===
 
-    hidden_size = [32, 128, 512]
+    hidden_size = [32]#128, 512] #32
     activation = ["leaky"]
     architecture = ["fc2"]
     inference = ["svi"]
@@ -155,11 +158,13 @@ def main(args):
     init = (hidden_size, activation, architecture, inference, 
             epochs, lr, n_samples, warmup, n_inputs, posterior_samples)
 
-    parallel_grid_search(*init)
-    dataset = build_dataset(*init, device="cuda")
+    # parallel_grid_search(*init)
 
-    dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch.csv")
-    scatterplot_gridSearch_gradComponents(dataset=dataset, device="cuda")
+    test_points = 173
+    
+    dataset = build_dataset(*init, device="cuda", test_points=test_points)
+    dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
+    scatterplot_gridSearch_gradComponents(dataset=dataset, device="cuda", test_points=test_points)
 
 
 if __name__ == "__main__":
