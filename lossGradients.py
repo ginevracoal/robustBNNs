@@ -14,7 +14,7 @@ from reducedBNN import NN, redBNN
 DEBUG=False
 
 
-def loss_gradient_old(net, image, label, n_samples=None):
+def loss_gradient(net, image, label, n_samples=None):
 
     image = image.unsqueeze(0)
     label = label.argmax(-1).unsqueeze(0)
@@ -24,15 +24,16 @@ def loss_gradient_old(net, image, label, n_samples=None):
 
     net_copy = copy.deepcopy(net)
 
-    if n_samples: # bayesian
+    if n_samples: ## bayesian
         output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
 
+        ## alternative version
         # output = []
         # for i in range(n_samples):
         #     output.append(net_copy.forward(inputs=x_copy, n_samples=1))
         # output = torch.stack(output,0).mean(0)
 
-    else: # non bayesian
+    else: ## non bayesian
         output = net_copy.forward(inputs=x_copy) 
 
     loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
