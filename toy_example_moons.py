@@ -87,20 +87,26 @@ def build_dataset(hidden_size, activation, architecture, inference,
 
             df.loc[idx] = pandas.Series(bnn_dict)
 
-    df.to_csv(TESTS+"halfMoons_lossGrads_gridSearch.csv", index = False, header=True)
+    dataset.to_csv(TESTS+"halfMoons_lossGrads_gridSearch.csv", index = False, header=True)
     return df
 
-def scatterplot_gridSearch_gradComponents(dataset, device="cuda"):
+def scatterplot_gridSearch_gradComponents(dataset, device="cuda", n_df_rows=100):
 
     sns.set()
     matplotlib.rc('font', **{'weight': 'bold', 'size': 12})
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 5), dpi=150, facecolor='w', edgecolor='k')
     sns.set_palette("cool",2)
-    # sns.set_palette("ocean_r",2)
 
-    # qua devo estrarre i valori delle componenti e modificare il dataset
+    cols = ["loss_gradients_components","test_accuracy","posterior_samples","hidden_size"]
+    components_df = pandas.DataFrame(columns=cols)
 
-    components_df = 
+    for idx, row in dataset.head(n_df_rows).iterrows():
+        loss_gradients_components = row["loss_gradients"].flatten()
+        for value in loss_gradients_components:
+            components_df.append({"loss_gradients_components":value,
+                                  "test_accuracy":row["test_accuracy"],
+                                  "posterior_samples":row["posterior_samples"],
+                                  "hidden_size":row["hidden_size"]})
 
     g = sns.scatterplot(data=components_df, x="test_accuracy", y="loss_gradients_components", 
                         hue="posterior_samples", alpha=0.9, style="hidden_size", ax=ax)
@@ -135,16 +141,16 @@ def main(args):
 
     # === grid search + plot ===
 
-    hidden_size = [128, 512, 1024]
-    activation = ["relu", "leaky", "tanh"]
+    hidden_size = [32, 128, 512]
+    activation = ["leaky"]
     architecture = ["fc2"]
     inference = ["svi"]
-    epochs = [10, 20, 50]
+    epochs = [5, 10, 30]
     lr = [0.01, 0.001, 0.0001]
     n_samples = [None]
     warmup = [None]
-    n_inputs = [5000, 15000, 30000]
-    posterior_samples = [1, 10, 50, 100, 500]
+    n_inputs = [1000, 5000, 10000]
+    posterior_samples = [1, 10, 50]
 
     init = (hidden_size, activation, architecture, inference, 
             epochs, lr, n_samples, warmup, n_inputs, posterior_samples)
@@ -152,8 +158,8 @@ def main(args):
     parallel_grid_search(*init)
     dataset = build_dataset(*init, device="cuda")
 
-    # dataset = load df
-    # scatterplot_gridSearch_gradComponents(dataset=dataset, device="cuda")
+    dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch.csv")
+    scatterplot_gridSearch_gradComponents(dataset=dataset, device="cuda")
 
 
 if __name__ == "__main__":
