@@ -14,6 +14,7 @@ from directories import *
 from pandas import DataFrame
 from torch.utils.data import DataLoader
 import random
+from sklearn.datasets import make_moons
 
 
 def execution_time(start, end):
@@ -65,6 +66,35 @@ def classwise_data_loaders(dataset_name, batch_size, n_inputs, shuffle=False):
         test_loaders.append(test_loader)
 
     return train_loaders, test_loaders, input_shape, num_classes
+
+
+def load_half_moons(channels="first", n_samples=60000):
+    x, y = make_moons(n_samples=n_samples, shuffle=True, noise=0.1, random_state=None)
+    x, y = (x.astype('float32'), y.astype('float32'))
+
+    # train-test split
+    split_size = int(0.8 * len(x))
+    x_train, y_train = x[:split_size], y[:split_size]
+    x_test, y_test = x[split_size:], y[split_size:]
+
+    # image-like representation for compatibility with old code
+    n_channels = 1
+    n_coords = 2
+    if channels == "first":
+        x_train = x_train.reshape(x_train.shape[0], n_channels, n_coords, 1)
+        x_test = x_test.reshape(x_test.shape[0], n_channels, n_coords, 1)
+
+    elif channels == "last":
+        x_train = x_train.reshape(x_train.shape[0], 1, n_coords, n_channels)
+        x_test = x_test.reshape(x_test.shape[0], 1, n_coords, n_channels)
+    input_shape = x_train.shape[1:]
+    
+    # binary one hot encoding
+    num_classes = 2
+    y_train = keras.utils.to_categorical(y_train, num_classes)
+    y_test = keras.utils.to_categorical(y_test, num_classes)
+    return x_train, y_train, x_test, y_test, input_shape, num_classes
+
 
 def load_fashion_mnist(channels, img_rows=28, img_cols=28):
     print("\nLoading fashion mnist.")
@@ -187,6 +217,8 @@ def load_dataset(dataset_name, n_inputs=None, channels="first"):
         x_train, y_train, x_test, y_test, input_shape, num_classes = load_cifar(channels)
     elif dataset_name == "fashion_mnist":
         x_train, y_train, x_test, y_test, input_shape, num_classes = load_fashion_mnist(channels)
+    elif dataset_name == "half_moons":
+        x_train, y_train, x_test, y_test, input_shape, num_classes = load_half_moons()
     else:
         raise AssertionError("\nDataset not available.")
 

@@ -45,11 +45,14 @@ class BNN(PyroModule):
                       activation=activation, architecture=architecture)
         self.name = self.get_name(epochs, lr, n_samples, warmup)
 
-    def get_name(self, epochs, lr, n_samples, warmup):
+    def get_name(self, epochs, lr, n_samples, warmup, n_inputs=None):
         
         name = str(self.dataset_name)+"_bnn_"+str(self.inference)+"_hid="+\
                str(self.net.hidden_size)+"_act="+str(self.net.activation)+\
                "_arch="+str(self.net.architecture)
+
+        if n_inputs:
+            name = name+"_inp="+str(n_inputs)
 
         if self.inference == "svi":
             return name+"_ep="+str(epochs)+"_lr="+str(lr)
