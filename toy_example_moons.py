@@ -160,16 +160,16 @@ def scatterplot_gridSearch_gradComponents(dataset, test_points, device="cuda"):
 def scatterplot_gridSearch_samp_vs_hidden(dataset, test_points, device="cuda"):
 
     print(dataset)
-    dataset = dataset[dataset["test_acc"]>60]
+    acc_ths=75
+    dataset = dataset[dataset["test_acc"]>acc_ths]
 
-    # dataset["avg_grad"]=dataset[['loss_gradients_x', 'loss_gradients_y']].mean(axis=1)
     categorical_rows = dataset["hidden_size"]
     categorical_cols = dataset["posterior_samples"]
     nrows = len(np.unique(categorical_rows))
     ncols = len(np.unique(categorical_cols))
 
     sns.set_style("darkgrid")
-    cmap = "gist_heat_r"
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
     # cmap = sns.cubehelix_palette(rot=-.7, as_cmap=True)
     matplotlib.rc('font', **{'size': 10})
     fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 6), dpi=150, 
@@ -199,7 +199,7 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, test_points, device="cuda"):
     cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap), cax=cbar_ax)
     cbar.ax.set_ylabel('Test accuracy (%)', rotation=270, fontdict=dict(weight='bold'))
     cbar.set_ticks([0,1])
-    cbar.set_ticklabels([60,100])
+    cbar.set_ticklabels([acc_ths,100])
     
     ## titles and labels
     fig.text(0.03, 0.5, "Hidden size", va='center',fontsize=12, rotation='vertical',
@@ -275,10 +275,9 @@ def scatterplot_gridSearch_variance(dataset, test_points, device="cuda"):
             g.set(xlim=(60, None))
             # ax[idx].set_title(str(val)+" samples")
             ax[idx].set_xlabel("")
-            ax[idx].set_ylabel("")
+            ax[idx].set_ylabel(f"hidden_size={val}")
     # fig.text(0.5, 0.01, '(%) ', ha='center', fontsize=12)
     # fig.text(0.03, 0.5, 'Expected loss gradients components', va='center',fontsize=12,
-    #                                                            rotation='vertical')
     # ax.legend(loc='upper right', title="posterior samples")
 
     # fig.text(0.5, 0.01, "Samples involved in the expectations ($w \sim p(w|D)$)", ha='center')
@@ -287,9 +286,32 @@ def scatterplot_gridSearch_variance(dataset, test_points, device="cuda"):
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
 
+
 ##########################
 # robustness vs accuracy #
 ##########################
+
+def grid_attack(method, hidden_size, activation, architecture, inference, epochs, lr, 
+                  n_samples, warmup, n_inputs, posterior_samples, device="cuda", 
+                  rel_path=TESTS):
+   
+    _, _, x_test, y_test, inp_shape, out_size = \
+        load_dataset(dataset_name="half_moons", n_inputs=TEST_POINTS, channels="first") 
+
+    x_test = torch.from_numpy(x_test)
+    y_test = torch.from_numpy(y_test)
+
+    combinations = list(itertools.product(hidden_size, activation, architecture, inference, 
+                        epochs, lr, n_samples, warmup, n_inputs))
+    for init in combinations:
+
+        bnn = MoonsBNN(*init, inp_shape, out_size)
+        bnn.load(device=device, rel_path=rel_path)
+        
+        for p_samp in posterior_samples:
+            x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name="half_moons", 
+                              device=device, method=method, filename=bnn.name, 
+                              n_samples=p_samp)
 
 def build_rob_acc_dataset(method, hidden_size, activation, architecture, inference, epochs, lr, 
                           n_samples, warmup, n_inputs, posterior_samples, device="cuda", 
@@ -317,10 +339,6 @@ def build_rob_acc_dataset(method, hidden_size, activation, architecture, inferen
         
         for p_samp in posterior_samples:
             bnn_dict = {cols[k]:val for k, val in enumerate(init)}
-
-            # x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name="half_moons", 
-            #                   device=device, method=method, filename=bnn.name, 
-            #                   n_samples=p_samp)
             x_attack = load_attack(model=bnn, method=method, filename=bnn.name, 
                                   n_samples=p_samp, rel_path=TESTS)
 
@@ -343,27 +361,73 @@ def build_rob_acc_dataset(method, hidden_size, activation, architecture, inferen
 def plot_rob_acc(dataset, test_points, method, device="cuda"):
 
     print(dataset)
-    dataset = dataset[dataset["test_acc"]>60]
+    # dataset = dataset[dataset["test_acc"]>60]
+
+    categorical_rows=dataset["hidden_size"]
+    nrows = len(np.unique(categorical_rows))
 
     sns.set_style("darkgrid")
-    cmap = "gist_heat_r"
     matplotlib.rc('font', **{'size': 10})
-    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 6), dpi=150, facecolor='w', edgecolor='k')
+    fig, ax = plt.subplots(nrows=nrows, ncols=1, figsize=(10, 6), dpi=150, facecolor='w', edgecolor='k')
 
-    g = sns.scatterplot(data=dataset, x="adversarial_acc", y="softmax_rob", 
-                        # size="hidden_size", hue="n_inputs", alpha=0.8, 
-                        ax=ax, legend=False, sizes=(20, 80), palette=cmap)
-    ax.set_xlabel("")
-    ax.set_ylabel("")
-    
-    ## titles and labels
+
+    # cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["lightseagreen","darkred","black"])
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
+
+    for i, categ_row in enumerate(np.unique(categorical_rows)):
+        df = dataset[categorical_rows==categ_row]
+        g = sns.scatterplot(data=df, x="test_acc", y="softmax_rob", 
+                            size="n_inputs", hue="n_inputs", alpha=0.9, 
+                            ax=ax[i], legend="full", sizes=(20, 150), palette=cmap)
+        ax[i].set_xlim(75,101)
+        ax[i].set_xlabel("")
+        ax[i].set_ylabel(f"hidden_size={categ_row}")
+
+    ax[1].legend_.remove()
+    ax[2].legend_.remove()
+
     fig.text(0.5, 0.01, r"Test accuracy", fontsize=12, ha='center',fontdict=dict(weight='bold'))
     fig.text(0.03, 0.5, "Softmax robustness", va='center',fontsize=12, rotation='vertical',
         fontdict=dict(weight='bold'))
 
-    filename = "halfMoons_acc_vs_rob_"+str(test_points)+"_"+str(method)+".png"
+    filename = "halfMoons_acc_vs_rob_scatter_"+str(test_points)+"_"+str(method)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
+
+
+def stripplot_rob_acc(dataset, test_points, method, device="cuda"):
+
+    print(dataset)
+    dataset = dataset[dataset["test_acc"]>75]
+
+    sns.set_style("darkgrid")
+    matplotlib.rc('font', **{'weight':'bold','size': 10})
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10, 5), dpi=150, facecolor='w', edgecolor='k')
+
+    # cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["lightseagreen","darkred","black"])
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
+
+    g = sns.stripplot(data=dataset, y="hidden_size", x="test_acc", hue="n_inputs", alpha=0.8,
+                        ax=ax[0], palette="gist_heat", orient="h")
+    ax[0].set_ylabel("")
+    ax[0].set_xlabel("Test accuracy", fontdict=dict(weight='bold'))
+    # ax[0].set_xlim(60,100)
+    ax[0].legend_.remove()
+
+    g = sns.stripplot(data=dataset, y="hidden_size", x="softmax_rob",  hue="n_inputs", alpha=0.8, 
+                        ax=ax[1], palette="gist_heat", orient="h")
+    ax[1].set_ylabel("")
+    ax[1].set_xlabel("Softmax robustness", fontdict=dict(weight='bold'))
+    # ax[1].set_xlim(0,1)
+
+    # fig.text(0.5, 0.01, r"Test accuracy", fontsize=12, ha='center',fontdict=dict(weight='bold'))
+    fig.text(0.03, 0.5, "Hidden size", va='center',fontsize=10, rotation='vertical',
+        fontdict=dict(weight='bold'))
+
+    filename = "halfMoons_acc_vs_rob_strip_"+str(test_points)+"_"+str(method)+".png"
+    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
+    plt.savefig(TESTS + filename)
+
 
 
 def main(args):
@@ -387,8 +451,9 @@ def main(args):
     # bnn.evaluate(test_loader=test_loader, device=args.device)
 
     # === grid search ===
+    attack = "fgsm"
 
-    hidden_size = [32]#, 128]# 32, 128, 256] 
+    hidden_size = [32, 128, 256]#, 512] #32, 128, 256]
     activation = ["leaky"]
     architecture = ["fc2"]
     inference = ["svi"]
@@ -405,25 +470,27 @@ def main(args):
     #         args.inference, args.epochs, args.lr, args.samples, args.warmup, args.inputs, 3]]
 
     # parallel_train(*init)
+    # parallel_compute_grads(*init)
+    # grid_attack(attack, *init, device="cuda", rel_path=TESTS) 
 
     # === plots ===
     test_points = TEST_POINTS 
 
-    parallel_compute_grads(*init)
-
-    dataset = build_components_dataset(*init, device="cuda", test_points=test_points, rel_path=TESTS)
+    # dataset = build_components_dataset(*init, device="cuda", test_points=test_points, rel_path=DATA)
     dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
-    # scatterplot_gridSearch_gradComponents(dataset=dataset, device="cuda", test_points=test_points)
     scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device="cuda", test_points=test_points)
-    
+    # scatterplot_gridSearch_gradComponents(dataset=dataset, device="cuda", test_points=test_points)
+
     # # dataset = build_variance_dataset(*init, device="cuda", test_points=test_points, rel_path=DATA)
     # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_compVariance_"+str(test_points)+".csv")
     # scatterplot_gridSearch_variance(dataset, test_points, device="cuda")
 
-    # attack = "fgsm"
+
     # dataset = build_rob_acc_dataset(attack, *init, device="cuda", 
-    #                                 test_points=test_points, rel_path=TESTS) 
-    # plot_rob_acc(dataset, test_points, attack, device="cuda")
+    #                                 test_points=test_points, rel_path=DATA) 
+    dataset = pandas.read_csv(TESTS+"halfMoons_accVsRob_"+str(test_points)+"_"+str(attack)+".csv")
+    plot_rob_acc(dataset, test_points, attack, device="cuda")
+    stripplot_rob_acc(dataset, test_points, attack, device="cuda")
 
 
 if __name__ == "__main__":
