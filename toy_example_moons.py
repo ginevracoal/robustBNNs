@@ -21,9 +21,15 @@ import pandas
 import itertools
 from lossGradients import loss_gradients, load_loss_gradients
 import matplotlib
+from adversarialAttacks import attack, attack_evaluation, load_attack
 
 
 DATA=DATA+"half_moons_grid_search/"
+TEST_POINTS=100
+
+#################################
+# exp loss gradients components #
+#################################
 
 
 class MoonsBNN(BNN):
@@ -34,7 +40,7 @@ class MoonsBNN(BNN):
         self.name = self.get_name(epochs, lr, n_samples, warmup, n_inputs)
 
 
-def _train_and_compute_grads(hidden_size, activation, architecture, inference, 
+def _train(hidden_size, activation, architecture, inference, 
            epochs, lr, n_samples, warmup, n_inputs, posterior_samples):
 
     train_loader, _, inp_shape, out_size = \
@@ -43,16 +49,8 @@ def _train_and_compute_grads(hidden_size, activation, architecture, inference,
     bnn = MoonsBNN(hidden_size, activation, architecture, inference, 
                    epochs, lr, n_samples, warmup, n_inputs, inp_shape, out_size)
     bnn.train(train_loader=train_loader, device="cpu")
-    # bnn.load(device="cpu", rel_path=DATA)
 
-    _, test_loader, _, _ = \
-        data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=1000, shuffle=True)
-
-    loss_gradients(net=bnn, n_samples=posterior_samples, savedir=bnn.name+"/", 
-                    data_loader=test_loader, device="cpu", filename=bnn.name)
-
-
-def parallel_grid_search(hidden_size, activation, architecture, inference, 
+def parallel_train(hidden_size, activation, architecture, inference, 
                          epochs, lr, n_samples, warmup, n_inputs, posterior_samples):
     from joblib import Parallel, delayed
 
@@ -60,12 +58,34 @@ def parallel_grid_search(hidden_size, activation, architecture, inference,
                          epochs, lr, n_samples, warmup, n_inputs, posterior_samples))
     
     Parallel(n_jobs=10)(
-        delayed(_train_and_compute_grads)(*init) for init in combinations)
+        delayed(_train)(*init) for init in combinations)
+
+def _compute_grads(hidden_size, activation, architecture, inference, 
+           epochs, lr, n_samples, warmup, n_inputs, posterior_samples):
+
+    _, test_loader, inp_shape, out_size = \
+        data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=TEST_POINTS, shuffle=True)
+
+    bnn = MoonsBNN(hidden_size, activation, architecture, inference, 
+                   epochs, lr, n_samples, warmup, n_inputs, inp_shape, out_size)
+    bnn.load(device="cpu", rel_path=TESTS)
+    loss_gradients(net=bnn, n_samples=posterior_samples, savedir=bnn.name+"/", 
+                    data_loader=test_loader, device="cpu", filename=bnn.name)
+
+def parallel_compute_grads(hidden_size, activation, architecture, inference, 
+                         epochs, lr, n_samples, warmup, n_inputs, posterior_samples):
+    from joblib import Parallel, delayed
+
+    combinations = list(itertools.product(hidden_size, activation, architecture, inference, 
+                         epochs, lr, n_samples, warmup, n_inputs, posterior_samples))
+    
+    Parallel(n_jobs=10)(
+        delayed(_compute_grads)(*init) for init in combinations)
 
 
 def build_components_dataset(hidden_size, activation, architecture, inference, epochs, lr, 
                             n_samples,  warmup, n_inputs, posterior_samples, device="cuda", 
-                            test_points=1000, rel_path=TESTS):
+                            test_points=TEST_POINTS, rel_path=TESTS):
 
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=test_points, shuffle=True)
@@ -98,7 +118,6 @@ def build_components_dataset(hidden_size, activation, architecture, inference, e
                 row_count += 1
 
     print("\nSaving:", df.head())
-
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     df.to_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv", 
               index = False, header=True)
@@ -196,7 +215,7 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, test_points, device="cuda"):
 
 def build_variance_dataset(hidden_size, activation, architecture, inference, epochs, lr, 
                             n_samples,  warmup, n_inputs, posterior_samples, device="cuda", 
-                            test_points=1000, rel_path=TESTS):
+                            test_points=TEST_POINTS, rel_path=TESTS):
 
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=test_points, shuffle=True)
@@ -268,6 +287,83 @@ def scatterplot_gridSearch_variance(dataset, test_points, device="cuda"):
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
 
+##########################
+# robustness vs accuracy #
+##########################
+
+def build_rob_acc_dataset(method, hidden_size, activation, architecture, inference, epochs, lr, 
+                          n_samples, warmup, n_inputs, posterior_samples, device="cuda", 
+                          test_points=TEST_POINTS, rel_path=TESTS):
+    
+    _, _, x_test, y_test, inp_shape, out_size = \
+        load_dataset(dataset_name="half_moons", n_inputs=test_points, channels="first") 
+
+    x_test = torch.from_numpy(x_test)
+    y_test = torch.from_numpy(y_test)
+
+    combinations = list(itertools.product(hidden_size, activation, architecture, inference, 
+                        epochs, lr, n_samples, warmup, n_inputs))
+    
+    cols = ["hidden_size", "activation", "architecture", "inference", "epochs", "lr", 
+            "n_samples", "warmup", "n_inputs", "posterior_samples", 
+            "test_acc",  "adversarial_acc", "softmax_rob"]
+    df = pandas.DataFrame(columns=cols)
+
+    row_count = 0
+    for init in combinations:
+
+        bnn = MoonsBNN(*init, inp_shape, out_size)
+        bnn.load(device=device, rel_path=rel_path)
+        
+        for p_samp in posterior_samples:
+            bnn_dict = {cols[k]:val for k, val in enumerate(init)}
+
+            # x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name="half_moons", 
+            #                   device=device, method=method, filename=bnn.name, 
+            #                   n_samples=p_samp)
+            x_attack = load_attack(model=bnn, method=method, filename=bnn.name, 
+                                  n_samples=p_samp, rel_path=TESTS)
+
+            test_acc, adversarial_acc, softmax_rob = \
+                   attack_evaluation(model=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
+                                     device=device, n_samples=p_samp)
+
+            bnn_dict.update({"posterior_samples":p_samp, "test_acc":test_acc, 
+                             "adversarial_acc":adversarial_acc, "softmax_rob":softmax_rob})
+            df.loc[row_count] = pandas.Series(bnn_dict)
+            row_count += 1
+
+        print("\nSaving:", df.head())
+        os.makedirs(os.path.dirname(TESTS), exist_ok=True)
+        df.to_csv(TESTS+"halfMoons_accVsRob_"+str(test_points)+"_"+str(method)+".csv", 
+                  index = False, header=True)
+    return df
+
+
+def plot_rob_acc(dataset, test_points, method, device="cuda"):
+
+    print(dataset)
+    dataset = dataset[dataset["test_acc"]>60]
+
+    sns.set_style("darkgrid")
+    cmap = "gist_heat_r"
+    matplotlib.rc('font', **{'size': 10})
+    fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 6), dpi=150, facecolor='w', edgecolor='k')
+
+    g = sns.scatterplot(data=dataset, x="adversarial_acc", y="softmax_rob", 
+                        # size="hidden_size", hue="n_inputs", alpha=0.8, 
+                        ax=ax, legend=False, sizes=(20, 80), palette=cmap)
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    
+    ## titles and labels
+    fig.text(0.5, 0.01, r"Test accuracy", fontsize=12, ha='center',fontdict=dict(weight='bold'))
+    fig.text(0.03, 0.5, "Softmax robustness", va='center',fontsize=12, rotation='vertical',
+        fontdict=dict(weight='bold'))
+
+    filename = "halfMoons_acc_vs_rob_"+str(test_points)+"_"+str(method)+".png"
+    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
+    plt.savefig(TESTS + filename)
 
 
 def main(args):
@@ -290,33 +386,44 @@ def main(args):
 
     # bnn.evaluate(test_loader=test_loader, device=args.device)
 
-    # === grid search + plot ===
+    # === grid search ===
 
-    hidden_size = [32, 128]# [512] 
+    hidden_size = [32]#, 128]# 32, 128, 256] 
     activation = ["leaky"]
     architecture = ["fc2"]
     inference = ["svi"]
-    epochs = [5, 10, 30]
+    epochs = [5, 10, 20]
     lr = [0.01, 0.001, 0.0001]
     n_samples = [None]
     warmup = [None]
-    n_inputs = [1000, 5000, 10000]
+    n_inputs = [5000, 10000, 15000]
     posterior_samples = [1, 10, 50]
     init = (hidden_size, activation, architecture, inference, 
             epochs, lr, n_samples, warmup, n_inputs, posterior_samples)
 
-    # parallel_grid_search(*init)
+    # init = [[arg] for arg in [args.hidden_size, args.activation, args.architecture, 
+    #         args.inference, args.epochs, args.lr, args.samples, args.warmup, args.inputs, 3]]
 
-    test_points = 113 
-    # dataset = build_components_dataset(*init, device="cuda", test_points=test_points, rel_path=DATA)
+    # parallel_train(*init)
+
+    # === plots ===
+    test_points = TEST_POINTS 
+
+    parallel_compute_grads(*init)
+
+    dataset = build_components_dataset(*init, device="cuda", test_points=test_points, rel_path=TESTS)
     dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
     # scatterplot_gridSearch_gradComponents(dataset=dataset, device="cuda", test_points=test_points)
     scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device="cuda", test_points=test_points)
     
-    # test_points = 500
     # # dataset = build_variance_dataset(*init, device="cuda", test_points=test_points, rel_path=DATA)
     # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_compVariance_"+str(test_points)+".csv")
     # scatterplot_gridSearch_variance(dataset, test_points, device="cuda")
+
+    # attack = "fgsm"
+    # dataset = build_rob_acc_dataset(attack, *init, device="cuda", 
+    #                                 test_points=test_points, rel_path=TESTS) 
+    # plot_rob_acc(dataset, test_points, attack, device="cuda")
 
 
 if __name__ == "__main__":

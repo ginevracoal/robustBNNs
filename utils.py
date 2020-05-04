@@ -36,7 +36,6 @@ def data_loaders(dataset_name, batch_size, n_inputs, channels="first", shuffle=T
                               shuffle=shuffle)
     test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=batch_size, 
                              shuffle=shuffle)
-    num_classes = 10
 
     return train_loader, test_loader, input_shape, num_classes
 
@@ -148,9 +147,9 @@ def load_mnist(channels, img_rows=28, img_cols=28):
     num_classes = 10
     return x_train, y_train, x_test, y_test, input_shape, num_classes
 
-def labels_to_onehot(integer_labels):
+def labels_to_onehot(integer_labels, n_classes=None):
     n_rows = len(integer_labels)
-    n_cols = integer_labels.max() + 1
+    n_cols = n_classes if n_classes else integer_labels.max() + 1 
     onehot = np.zeros((n_rows, n_cols), dtype='uint8')
     onehot[np.arange(n_rows), integer_labels] = 1
     return onehot

@@ -71,14 +71,11 @@ class BNN(PyroModule):
         lifted_module = pyro.random_module("module", self.net, priors)()
 
         with pyro.plate("data", len(x_data)):
-            logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
+            preds = lifted_module(x_data)
+            logits = nnf.log_softmax(preds, dim=-1)
             obs = pyro.sample("obs", Categorical(logits=logits), obs=y_data)
 
-        if DEBUG:
-            print("\nlogits =", logits[0])
-            print("obs =", obs[0])
-
-        return logits
+        return preds
 
     def guide(self, x_data, y_data=None):
 
@@ -92,9 +89,10 @@ class BNN(PyroModule):
         lifted_module = pyro.random_module("module", self.net, dists)()
 
         with pyro.plate("data", len(x_data)):
-            logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
+            preds = lifted_module(x_data)
+            logits = nnf.log_softmax(preds, dim=-1)
 
-        return logits
+        return preds
 
     def save(self):
 
@@ -136,7 +134,7 @@ class BNN(PyroModule):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=10, return_logits=True):
+    def forward(self, inputs, n_samples=8, return_logits=True):
 
         if self.inference == "svi":
 
@@ -161,12 +159,13 @@ class BNN(PyroModule):
                     self.net.state_dict().update({str(key):weights})
                     preds.append(self.net.forward(inputs))
     
-        logits = torch.stack(preds, dim=0).mean(0)
+        logits = nnf.softmax(torch.stack(preds, dim=0).mean(0), dim=-1)
         labels = logits.argmax(-1)
-        exp_prediction = nnf.one_hot(labels, 10)
-        # print(logits[0], labels[0], exp_prediction[0])
 
-        return logits if return_logits==True else exp_prediction
+        one_hot_preds = torch.zeros_like(logits)
+        one_hot_preds[range(one_hot_preds.shape[0]), labels]=1
+
+        return logits if return_logits==True else one_hot_preds
 
     def _train_hmc(self, train_loader, n_samples, warmup, device):
         print("\n == HMC training ==")

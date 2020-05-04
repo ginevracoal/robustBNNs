@@ -27,8 +27,8 @@ class NN(nn.Module):
 
         self.name = self.get_name(dataset_name, hidden_size, activation, architecture)
         self.set_model(architecture, activation, input_shape, output_size, hidden_size)
-        print("\nBase net:\n", self)
-        print("\nTotal number of weights =", sum(p.numel() for p in self.parameters()))
+        # print("\nBase net:\n", self)
+        # print("\nTotal number of weights =", sum(p.numel() for p in self.parameters()))
         # [print(p.shape) for p in self.parameters()]
 
     def get_name(self, dataset_name, hidden_size, activation, architecture):

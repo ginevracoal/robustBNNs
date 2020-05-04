@@ -31,6 +31,10 @@ def softmax_difference(original_predictions, adversarial_predictions):
 
     softmax_diff = original_predictions-adversarial_predictions
     softmax_diff_norms = softmax_diff.abs().max(dim=-1)[0]
+
+    if softmax_diff_norms.min() < 0. or softmax_diff_norms.max() > 1.:
+        raise ValueError("Softmax difference should be in [0,1]")
+
     return softmax_diff_norms
 
 def softmax_robustness(original_outputs, adversarial_outputs):
@@ -47,15 +51,14 @@ def softmax_robustness(original_outputs, adversarial_outputs):
 # adversarial attacks #
 #######################
 
-def fgsm_attack(model, image, label, n_samples, epsilon=0.3):
+def fgsm_attack(model, image, label, n_samples=None, epsilon=0.3):
 
     image.requires_grad = True
 
-    # output = model.forward(image)
     if n_samples:
-        output = model.forward(image, n_samples)
+        output = model.forward(image, n_samples, return_logits=True)
     else:
-        output = model.forward(image)
+        output = model.forward(image, return_logits=True)
 
     loss = torch.nn.CrossEntropyLoss()(output, label)
     model.zero_grad()
@@ -68,14 +71,17 @@ def fgsm_attack(model, image, label, n_samples, epsilon=0.3):
     return perturbed_image
 
 
-def pgd_attack(model, image, label, n_samples, epsilon=0.3, alpha=2/255, iters=40):
+def pgd_attack(model, image, label, n_samples=None, epsilon=0.3, alpha=2/255, iters=40):
 
     original_image = copy.deepcopy(image)
 
     for i in range(iters):
         image.requires_grad = True  
         # output = model.forward(image)
-        output = model.forward(image, n_samples) if n_samples else model.forward(image)
+        if n_samples:
+            output = model.forward(image, n_samples, return_logits=True) 
+        else:
+            model.forward(image, return_logits=True)
         loss = torch.nn.CrossEntropyLoss()(output, label)
         model.zero_grad()
         loss.backward()
@@ -109,7 +115,7 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, n_sample
     adversarial_attack = torch.cat(adversarial_attack)
 
     path = TESTS+filename+"/"
-    filename = filename+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else filename+"_attack.pkl"
+    filename = filename+"_"+str(method)+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else filename+"_attack.pkl"
     save_to_pickle(data=adversarial_attack, path=path, filename=filename)
     return adversarial_attack
 
@@ -121,7 +127,7 @@ def load_attack(model, method, filename, n_samples=None, rel_path=TESTS):
 def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
     print(f"\nEvaluating against the attacks", end="")
     if n_samples:
-        print(f"with {n_samples} defence samples:")
+        print(f" with {n_samples} defence samples")
 
     random.seed(0)
     pyro.set_rng_seed(0)
@@ -159,8 +165,9 @@ def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
 
         original_outputs = torch.cat(original_outputs)
         adversarial_outputs = torch.cat(adversarial_outputs)
-        softmax_robustness(original_outputs, adversarial_outputs)
+        softmax_rob = softmax_robustness(original_outputs, adversarial_outputs)
 
+        return original_accuracy, adversarial_accuracy, softmax_rob
 
 ########
 # main #
@@ -190,7 +197,7 @@ def main(args):
     bnn = BNN(*init, inp_shape, out_size)
     bnn.load(device=args.device, rel_path=DATA)
 
-    for attack_samples in [50]:
+    for attack_samples in [1,10,50]:
         x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
                           device=args.device, method=args.attack, filename=bnn.name, 
                           n_samples=attack_samples)
