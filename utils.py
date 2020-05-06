@@ -67,9 +67,10 @@ def classwise_data_loaders(dataset_name, batch_size, n_inputs, shuffle=False):
     return train_loaders, test_loaders, input_shape, num_classes
 
 
-def load_half_moons(channels="first", n_samples=60000):
-    x, y = make_moons(n_samples=n_samples, shuffle=True, noise=0.1, random_state=None)
+def load_half_moons(channels="first", n_samples=30000):
+    x, y = make_moons(n_samples=n_samples, shuffle=True, noise=0.1, random_state=0)
     x, y = (x.astype('float32'), y.astype('float32'))
+    x = (x-np.min(x))/(np.max(x)-np.min(x))
 
     # train-test split
     split_size = int(0.8 * len(x))
@@ -88,6 +89,7 @@ def load_half_moons(channels="first", n_samples=60000):
         x_test = x_test.reshape(x_test.shape[0], 1, n_coords, n_channels)
     input_shape = x_train.shape[1:]
     
+
     # binary one hot encoding
     num_classes = 2
     y_train = keras.utils.to_categorical(y_train, num_classes)
