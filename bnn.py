@@ -169,11 +169,12 @@ class BNN(PyroModule):
 
     def _train_hmc(self, train_loader, n_samples, warmup, device):
         print("\n == HMC training ==")
+        pyro.clear_param_store()
 
         kernel = HMC(self.model, step_size=0.0855, num_steps=4)
+        mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup, num_chains=1)
         batch_samples = int(n_samples*train_loader.batch_size/len(train_loader.dataset))+1
         print("\nSamples per batch =", batch_samples, ", Total samples =", n_samples)
-        mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup, num_chains=1)
 
         start = time.time()
         sample_idx = 0
@@ -181,9 +182,9 @@ class BNN(PyroModule):
         self.posterior_samples = {}
 
         for x_batch, y_batch in train_loader:
-            x_batch = x_batch.to(device)
-            y_batch = y_batch.to(device)
 
+            x_batch = x_batch.to(device)
+            y_batch = y_batch.to(device).argmax(-1)
             mcmc.run(x_batch, y_batch)
             
             for i in range(batch_samples):
@@ -198,11 +199,11 @@ class BNN(PyroModule):
      
         print(f"\nTrain accuracy: {100 * correct_predictions / len(train_loader.dataset):.2f}")                  
         execution_time(start=start, end=time.time())
+        self.save()
 
         if DEBUG:
             print(self.posterior_samples.keys())
 
-        self.save()
 
     def _train_svi(self, train_loader, epochs, lr, device):
         print("\n == SVI training ==")
@@ -262,6 +263,7 @@ class BNN(PyroModule):
         elif self.inference == "hmc":
             self._train_hmc(train_loader, self.n_samples, self.warmup, device)
 
+
     def evaluate(self, test_loader, device, n_samples=10):
         self.to(device)
         self.net.to(device)
@@ -294,7 +296,7 @@ def main(args):
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=args.dataset, batch_size=64, 
                                          n_inputs=args.inputs, shuffle=True)
-
+                        
     bnn = BNN(args.dataset, *init, inp_shape, out_size)
    
     bnn.train(train_loader=train_loader, device=args.device)
