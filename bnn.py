@@ -19,6 +19,8 @@ from utils import plot_loss_accuracy
 import torch.distributions.constraints as constraints
 softplus = torch.nn.Softplus()
 from pyro.nn import PyroModule
+import pandas as pd 
+import copy
 
 DEBUG=False
 RETURN_LOGITS=False
@@ -112,7 +114,9 @@ class BNN(PyroModule):
         elif self.inference == "hmc":
             self.net.to("cpu")
             self.to("cpu")
-            save_to_pickle(data=self.posterior_samples, path=path, filename=filename+".pkl")
+
+            for key, value in self.posterior_predictive.items():
+                torch.save(value.state_dict(), path+filename+"_"+str(key)+".pt")
 
     def load(self, device, rel_path=TESTS):
         name = self.name
@@ -127,9 +131,14 @@ class BNN(PyroModule):
             print("\nLoading ", path + filename + ".pt\n")
 
         elif self.inference == "hmc":
-            posterior_samples = load_from_pickle(path + filename + ".pkl")
-            self.posterior_samples = posterior_samples
-            print("\nLoading ", path + filename + ".pkl\n")
+
+            self.posterior_predictive={}
+            for i in range(self.n_samples):
+                net_copy = copy.deepcopy(self.net)
+                for key, value in self.net.state_dict().items():
+                    net_copy.load_state_dict(torch.load(path+filename+"_"+str(i)+".pt"))
+                
+                self.posterior_predictive.update({"i":net_copy})            
 
         self.to(device)
         self.net.to(device)
@@ -153,11 +162,8 @@ class BNN(PyroModule):
         elif self.inference == "hmc":
 
             preds = []
-            for key, value in self.net.state_dict().items():
-                for i in range(n_samples):
-                    weights = self.posterior_samples[str(f"module$$${key}_{i}")]
-                    self.net.state_dict().update({str(key):weights})
-                    preds.append(self.net.forward(inputs))
+            for value in self.posterior_predictive.values():
+                preds.append(value.forward(inputs))
     
         logits = nnf.softmax(torch.stack(preds, dim=0).mean(0), dim=-1)
         labels = logits.argmax(-1)
@@ -173,8 +179,8 @@ class BNN(PyroModule):
 
         kernel = HMC(self.model, step_size=0.0855, num_steps=4)
         mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup, num_chains=1)
-        batch_samples = int(n_samples*train_loader.batch_size/len(train_loader.dataset))+1
-        print("\nSamples per batch =", batch_samples, ", Total samples =", n_samples)
+        # batch_samples = int(n_samples*train_loader.batch_size/len(train_loader.dataset))+1
+        # print("\nSamples per batch =", batch_samples, ", Total samples =", n_samples)
 
         start = time.time()
         sample_idx = 0
@@ -182,20 +188,22 @@ class BNN(PyroModule):
         self.posterior_samples = {}
 
         for x_batch, y_batch in train_loader:
-
             x_batch = x_batch.to(device)
-            y_batch = y_batch.to(device).argmax(-1)
-            mcmc.run(x_batch, y_batch)
-            
-            for i in range(batch_samples):
-                for k, v in mcmc.get_samples().items():
-                    self.posterior_samples.update({f"{k}_{sample_idx}":v[i]})
-                sample_idx += 1
+            labels = y_batch.to(device).argmax(-1)
+            mcmc.run(x_batch, labels)
 
-            outputs = self.forward(x_batch, n_samples=batch_samples).to(device)
-            predictions = outputs.argmax(dim=-1)
-            labels = y_batch.argmax(-1)
-            correct_predictions += (predictions == labels).sum().item()
+        self.posterior_predictive={}
+        for i in range(n_samples):
+            for k, v in mcmc.get_samples().items():
+                net_copy = copy.deepcopy(self.net)
+                net_copy.state_dict().update({f"{k}_{sample_idx}":v[i]})
+            
+            self.posterior_predictive.update({str(i):net_copy})
+            sample_idx += 1
+
+        outputs = self.forward(x_batch, n_samples=n_samples).to(device)
+        predictions = outputs.argmax(dim=-1)
+        correct_predictions += (predictions == labels).sum().item()
      
         print(f"\nTrain accuracy: {100 * correct_predictions / len(train_loader.dataset):.2f}")                  
         execution_time(start=start, end=time.time())
@@ -288,19 +296,20 @@ class BNN(PyroModule):
 
 def main(args):
 
+    batch_size = 64 if args.inference=="svi" else 256
     init = (args.hidden_size, args.activation, args.architecture, 
             args.inference, args.epochs, args.lr, args.samples, args.warmup)
     
     # init = saved_bnns[args.dataset]
 
     train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=args.dataset, batch_size=64, 
+                            data_loaders(dataset_name=args.dataset, batch_size=batch_size, 
                                          n_inputs=args.inputs, shuffle=True)
                         
     bnn = BNN(args.dataset, *init, inp_shape, out_size)
    
     bnn.train(train_loader=train_loader, device=args.device)
-    # bnn.load(device=args.device, rel_path=DATA)
+    bnn.load(device=args.device, rel_path=TESTS)
 
     bnn.evaluate(test_loader=test_loader, device=args.device)
 
@@ -309,7 +318,7 @@ if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="BNN")
 
-    parser.add_argument("--inputs", default=1000, type=int)
+    parser.add_argument("--inputs", default=100, type=int)
     parser.add_argument("--dataset", default="mnist", type=str, 
                         help="mnist, fashion_mnist, cifar")
     parser.add_argument("--hidden_size", default=128, type=int, help="power of 2 >= 16")

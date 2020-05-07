@@ -25,7 +25,7 @@ from adversarialAttacks import attack, attack_evaluation, load_attack
 
 
 DATA=DATA+"half_moons_grid_search/"
-ACC_THS=80
+ACC_THS=60
 
 #################################
 # exp loss gradients components #
@@ -37,7 +37,6 @@ class MoonsBNN(BNN):
         super(MoonsBNN, self).__init__("half_moons", hidden_size, activation, architecture, 
                 inference, epochs, lr, n_samples, warmup, input_shape, output_size)
         self.name = self.get_name(epochs, lr, n_samples, warmup, n_inputs)
-        print(self.inference)
 
 def plot_half_moons(n_points=200):
 
@@ -58,8 +57,10 @@ def plot_half_moons(n_points=200):
 def _train(hidden_size, activation, architecture, inference, 
            epochs, lr, n_samples, warmup, n_inputs, posterior_samples, device):
 
+    batch_size = 64 if inference=="svi" else n_inputs
     train_loader, _, inp_shape, out_size = \
-            data_loaders(dataset_name="half_moons", batch_size=64, n_inputs=n_inputs, shuffle=False)
+            data_loaders(dataset_name="half_moons", batch_size=batch_size, 
+                         n_inputs=n_inputs, shuffle=False)
 
     bnn = MoonsBNN(hidden_size, activation, architecture, inference, 
                    epochs, lr, n_samples, warmup, n_inputs, inp_shape, out_size)
@@ -545,43 +546,47 @@ def main(args):
 
     # plot_half_moons()
 
-    # posterior_samples = 250
-    # _train(args.hidden_size, args.activation, args.architecture, args.inference, 
-    #        args.epochs, args.lr, args.samples, args.warmup, args.inputs, posterior_samples)
+    posterior_samples = 5
+    _train(args.hidden_size, args.activation, args.architecture, args.inference, 
+           args.epochs, args.lr, args.samples, args.warmup, args.inputs, 
+           posterior_samples, args.device)
 
-    # # bnn.load(device=args.device, rel_path=DATA)
-
-    # bnn.evaluate(test_loader=test_loader, device=args.device)
+    exit()
 
     # === grid search ===
     attack = "fgsm"
 
-    hidden_size = [256]#, 128, 256] 
+    hidden_size = [128]#,128]#, 32, 128, 256] 
     activation = ["leaky"]
     architecture = ["fc2"]
+
     # inference, epochs, lr, n_samples, warmup = (["svi"],[5, 10, 20],[0.01, 0.001, 0.0001],[None],[None])
-    inference, epochs, lr, n_samples, warmup =(["hmc"],[None],[None],[250],[50,100])
-    n_inputs = [5000, 10000, 15000]
-    posterior_samples = [250]
+    # n_inputs = [5000, 10000, 15000]
+
+    inference, epochs, lr, n_samples, warmup =(["hmc"],[None],[None],[100],[500])
+    n_inputs = [2000, 5000]
+
+    test_points = 100
+    posterior_samples = [50,100,250]
     init = (hidden_size, activation, architecture, inference, 
             epochs, lr, n_samples, warmup, n_inputs, posterior_samples)
 
     # init = [[arg] for arg in [args.hidden_size, args.activation, args.architecture, 
     #         args.inference, args.epochs, args.lr, args.samples, args.warmup, args.inputs, 3]]
 
-    parallel_train(*init)
-    parallel_compute_grads(*init, rel_path=TESTS, test_points=100)
-    # parallel_grid_attack(attack, *init, rel_path=TESTS, test_points=100) 
-    ## grid_attack(attack, *init, test_points=100, device="cuda", rel_path=DATA) 
-    exit()
+    serial_train(*init)
+    # parallel_train(*init)
+
+    parallel_compute_grads(*init, rel_path=TESTS, test_points=test_points)
+    # parallel_grid_attack(attack, *init, rel_path=TESTS, test_points=test_points) 
+    ## grid_attack(attack, *init, test_points=test_points, device="cuda", rel_path=DATA) 
 
     # === plots ===
-    test_points = 100
 
-    # dataset = build_components_dataset(*init, device=args.device, test_points=test_points, rel_path=TESTS)
+    dataset = build_components_dataset(*init, device=args.device, test_points=test_points, rel_path=TESTS)
     dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
     scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device=args.device, 
-         test_points=100, posterior_samples=[50,100,250], hidden_size=hidden_size)
+         test_points=test_points, posterior_samples=[50,100,250], hidden_size=hidden_size)
 
     # dataset = build_variance_dataset(*init, device=args.device, test_points=test_points, rel_path=DATA)
     # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_compVariance_"+str(test_points)+".csv")
