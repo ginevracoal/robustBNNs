@@ -21,6 +21,7 @@ softplus = torch.nn.Softplus()
 from pyro.nn import PyroModule
 import pandas as pd 
 import copy
+from collections import OrderedDict
 
 DEBUG=False
 RETURN_LOGITS=False
@@ -42,6 +43,8 @@ class BNN(PyroModule):
         self.lr = lr
         self.n_samples = n_samples
         self.warmup = warmup
+        self.step_size = 0.001
+        self.num_steps = 10
         self.net = NN(dataset_name=dataset_name, input_shape=input_shape, 
                       output_size=output_size, hidden_size=hidden_size, 
                       activation=activation, architecture=architecture)
@@ -59,7 +62,8 @@ class BNN(PyroModule):
         if self.inference == "svi":
             return name+"_ep="+str(epochs)+"_lr="+str(lr)
         elif self.inference == "hmc":
-            return name+"_samp="+str(n_samples)+"_warm="+str(warmup)
+            return name+"_samp="+str(n_samples)+"_warm="+str(warmup)+\
+                   "_stepsize="+str(self.step_size)+"_numsteps="+str(self.num_steps)
 
     def model(self, x_data, y_data):
 
@@ -118,6 +122,8 @@ class BNN(PyroModule):
             for key, value in self.posterior_predictive.items():
                 torch.save(value.state_dict(), path+filename+"_"+str(key)+".pt")
 
+                print(value.state_dict()["model.5.bias"])
+
     def load(self, device, rel_path=TESTS):
         name = self.name
         path = rel_path + name +"/"
@@ -133,12 +139,15 @@ class BNN(PyroModule):
         elif self.inference == "hmc":
 
             self.posterior_predictive={}
-            for i in range(self.n_samples):
+            for model_idx in range(self.n_samples):
                 net_copy = copy.deepcopy(self.net)
-                for key, value in self.net.state_dict().items():
-                    net_copy.load_state_dict(torch.load(path+filename+"_"+str(i)+".pt"))
-                
-                self.posterior_predictive.update({"i":net_copy})            
+                net_copy.load_state_dict(torch.load(path+filename+"_"+str(model_idx)+".pt"))
+                self.posterior_predictive.update({model_idx:net_copy})      
+
+                print(self.posterior_predictive[model_idx].state_dict()["model.5.bias"])
+
+            if len(self.posterior_predictive)!=self.n_samples:
+                raise AttributeError("wrong number of posterior models")
 
         self.to(device)
         self.net.to(device)
@@ -173,45 +182,42 @@ class BNN(PyroModule):
 
         return logits if return_logits==True else one_hot_preds
 
-    def _train_hmc(self, train_loader, n_samples, warmup, device):
+    def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device):
         print("\n == HMC training ==")
         pyro.clear_param_store()
 
-        kernel = HMC(self.model, step_size=0.0855, num_steps=4)
+        kernel = HMC(self.model, step_size=step_size, num_steps=num_steps)
         mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup, num_chains=1)
-        # batch_samples = int(n_samples*train_loader.batch_size/len(train_loader.dataset))+1
-        # print("\nSamples per batch =", batch_samples, ", Total samples =", n_samples)
 
         start = time.time()
-        sample_idx = 0
-        correct_predictions = 0.0
-        self.posterior_samples = {}
-
         for x_batch, y_batch in train_loader:
             x_batch = x_batch.to(device)
             labels = y_batch.to(device).argmax(-1)
             mcmc.run(x_batch, labels)
+            
+        execution_time(start=start, end=time.time())     
 
         self.posterior_predictive={}
-        for i in range(n_samples):
-            for k, v in mcmc.get_samples().items():
-                net_copy = copy.deepcopy(self.net)
-                net_copy.state_dict().update({f"{k}_{sample_idx}":v[i]})
-            
-            self.posterior_predictive.update({str(i):net_copy})
-            sample_idx += 1
-
-        outputs = self.forward(x_batch, n_samples=n_samples).to(device)
-        predictions = outputs.argmax(dim=-1)
-        correct_predictions += (predictions == labels).sum().item()
-     
-        print(f"\nTrain accuracy: {100 * correct_predictions / len(train_loader.dataset):.2f}")                  
-        execution_time(start=start, end=time.time())
-        self.save()
+        posterior_samples = mcmc.get_samples(n_samples)
+        state_dict_keys = list(self.net.state_dict().keys())
 
         if DEBUG:
-            print(self.posterior_samples.keys())
+            print("\n", list(posterior_samples.values())[-1])
 
+        for model_idx in range(n_samples):
+            net_copy = copy.deepcopy(self.net)
+
+            model_dict=OrderedDict({})
+            for weight_idx, weights in enumerate(posterior_samples.values()):
+                model_dict.update({state_dict_keys[weight_idx]:weights[model_idx]})
+            
+            net_copy.load_state_dict(model_dict)
+            self.posterior_predictive.update({str(model_idx):net_copy})
+
+        if DEBUG:
+            print("\n", weights[model_idx]) # corretto
+
+        self.save()
 
     def _train_svi(self, train_loader, epochs, lr, device):
         print("\n == SVI training ==")
@@ -258,7 +264,6 @@ class BNN(PyroModule):
         plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
                            path=TESTS+self.name+"/"+self.name+"_training.png")
 
-
     def train(self, train_loader, device):
         self.to(device)
         self.net.to(device)
@@ -269,8 +274,8 @@ class BNN(PyroModule):
             self._train_svi(train_loader, self.epochs, self.lr, device)
 
         elif self.inference == "hmc":
-            self._train_hmc(train_loader, self.n_samples, self.warmup, device)
-
+            self._train_hmc(train_loader, self.n_samples, self.warmup,
+                            self.step_size, self.num_steps, device)
 
     def evaluate(self, test_loader, device, n_samples=10):
         self.to(device)
@@ -296,7 +301,10 @@ class BNN(PyroModule):
 
 def main(args):
 
-    batch_size = 64 if args.inference=="svi" else 256
+    if args.device=="cuda":
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
+    batch_size = 64 if args.inference=="svi" else args.inputs
     init = (args.hidden_size, args.activation, args.architecture, 
             args.inference, args.epochs, args.lr, args.samples, args.warmup)
     
@@ -309,7 +317,7 @@ def main(args):
     bnn = BNN(args.dataset, *init, inp_shape, out_size)
    
     bnn.train(train_loader=train_loader, device=args.device)
-    bnn.load(device=args.device, rel_path=TESTS)
+    # bnn.load(device=args.device, rel_path=TESTS)
 
     bnn.evaluate(test_loader=test_loader, device=args.device)
 
@@ -324,7 +332,7 @@ if __name__ == "__main__":
     parser.add_argument("--hidden_size", default=128, type=int, help="power of 2 >= 16")
     parser.add_argument("--activation", default="leaky", type=str, 
                         help="relu, leaky, sigm, tanh")
-    parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
+    parser.add_argument("--architecture", default="fc2", type=str, help="conv, fc, fc2")
     parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
     parser.add_argument("--epochs", default=10, type=int)
     parser.add_argument("--samples", default=10, type=int)
