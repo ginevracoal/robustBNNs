@@ -187,13 +187,13 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, posterior_samples, hidden_siz
 
             df = dataset[(categorical_rows==row_val)&(categorical_cols==col_val)]
             g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", 
-                                size="test_acc", hue="test_acc", alpha=0.8, 
-                                vmin=min_acc, vmax=max_acc, 
-                                ax=ax[r,c], legend=False, sizes=(20, 80), palette=cmap)
+                                size="n_inputs", hue="n_inputs", alpha=0.8, legend=False,
+                                # vmin=min_acc, vmax=max_acc,  
+                                ax=ax[r,c], sizes=(20, 80), palette=cmap)
             ax[r,c].set_xlabel("")
             ax[r,c].set_ylabel("")
-            xlim=np.max(np.abs(df["loss_gradients_x"]))+2
-            ylim=np.max(np.abs(df["loss_gradients_y"]))+2
+            xlim=1.1*np.max(np.abs(df["loss_gradients_x"]))
+            ylim=1.1*np.max(np.abs(df["loss_gradients_y"]))
             ax[r,c].set_xlim(-xlim,+xlim)
             ax[r,c].set_ylim(-ylim,+ylim)
 
@@ -203,11 +203,11 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, posterior_samples, hidden_siz
             ax[r,0].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold')) 
 
     ## colorbar    
-    cbar_ax = fig.add_axes([0.93, 0.08, 0.01, 0.8])
-    cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap), cax=cbar_ax)
-    cbar.ax.set_ylabel('Test accuracy (%)', rotation=270, fontdict=dict(weight='bold'))
-    cbar.set_ticks([0,1])
-    cbar.set_ticklabels([ACC_THS,100])
+    # cbar_ax = fig.add_axes([0.93, 0.08, 0.01, 0.8])
+    # cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap), cax=cbar_ax)
+    # cbar.ax.set_ylabel('Test accuracy (%)', rotation=270, fontdict=dict(weight='bold'))
+    # cbar.set_ticks([0,1])
+    # cbar.set_ticklabels([ACC_THS,100])
     
     ## titles and labels
     fig.text(0.03, 0.5, "Hidden size", va='center',fontsize=12, rotation='vertical',
@@ -653,8 +653,8 @@ def final_scatterplot_svi_hmc(dataset, hidden_size, test_points, device="cuda"):
             ax[r,c].set_ylabel("")
             xlim=1.1*np.max(np.abs(df["loss_gradients_x"]))
             ylim=1.1*np.max(np.abs(df["loss_gradients_y"]))
-            ax[r,c].set_xlim(-xlim,+xlim)
-            ax[r,c].set_ylim(-ylim,+ylim)
+            # ax[r,c].set_xlim(-xlim,+xlim)
+            # ax[r,c].set_ylim(-ylim,+ylim)
 
             ax[r,0].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold')) 
             # ax[0,c].xaxis.set_label_position("top")
@@ -747,16 +747,20 @@ def main(args):
     # === hmc ===
     inference = ["hmc"]
     n_samples = [250]
-    warmup = [100, 200, 500]
-    n_inputs = [5000, 10000, 15000]
-    posterior_samples = [250]
+
+    # warmup = [100, 200, 500]
+    # n_inputs = [5000, 10000, 15000]
+    warmup = [10, 50, 100]
+    n_inputs = [50,100,1000]
+
+    posterior_samples = [1,50,250]
     epochs, lr = ([None],[None])
 
     # === grid search ===
     hidden_size = [32, 128, 256, 512] 
     activation = ["leaky"]
     architecture = ["fc2"]
-    test_points = 100
+    test_points = 98
     attack = "fgsm"
 
     init = (hidden_size, activation, architecture, inference, 
@@ -768,17 +772,16 @@ def main(args):
     # serial_train(*init)
     # parallel_train(*init)
 
-    # serial_compute_grads(*init, rel_path=TESTS, test_points=test_points)
+    serial_compute_grads(*init, rel_path=TESTS, test_points=test_points)
     # parallel_compute_grads(*init, rel_path=TESTS, test_points=test_points)
     # parallel_grid_attack(attack, *init, rel_path=TESTS, test_points=test_points) 
     ## grid_attack(attack, *init, test_points=test_points, device="cuda", rel_path=DATA) 
 
     # === plots ===
-
-    # dataset = build_components_dataset(*init, device=args.device, test_points=test_points, rel_path=TESTS)
-    # # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
-    # scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device=args.device, 
-    #      test_points=test_points, posterior_samples=posterior_samples, hidden_size=hidden_size)
+    dataset = build_components_dataset(*init, device=args.device, test_points=test_points, rel_path=TESTS)
+    # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
+    scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device=args.device, 
+         test_points=test_points, posterior_samples=posterior_samples, hidden_size=hidden_size)
 
     # dataset = build_variance_dataset(*init, device=args.device, test_points=test_points, rel_path=DATA)
     # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_compVariance_"+str(test_points)+".csv")
@@ -791,14 +794,14 @@ def main(args):
     # stripplot_rob_acc(dataset, test_points, attack, device=args.device)
 
     # # === final SVI + HMC plot === 
-    test_points = 100
-    # dataset = build_final_dataset(device=args.device, test_points=test_points)
-    dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_final_"+str(test_points)+".csv")
-    # final_scatterplot_svi_hmc(dataset, device=args.device, test_points=test_points, 
-    #                                  hidden_size=[32,128,256])
+    # test_points = 100
+    # # dataset = build_final_dataset(device=args.device, test_points=test_points)
+    # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_final_"+str(test_points)+".csv")
+    # # final_scatterplot_svi_hmc(dataset, device=args.device, test_points=test_points, 
+    # #                                  hidden_size=[32,128,256])
 
-    final_scatterplot_hmc(dataset, device=args.device, test_points=test_points, 
-                                     hidden_size=[32,128,256,512])
+    # final_scatterplot_hmc(dataset, device=args.device, test_points=test_points, 
+    #                                  hidden_size=[32,128,256,512])
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
