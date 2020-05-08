@@ -122,7 +122,8 @@ class BNN(PyroModule):
             for key, value in self.posterior_predictive.items():
                 torch.save(value.state_dict(), path+filename+"_"+str(key)+".pt")
 
-                print(value.state_dict()["model.5.bias"])
+                if DEBUG:
+                    print(value.state_dict()["model.5.bias"])
 
     def load(self, device, rel_path=TESTS):
         name = self.name
@@ -144,7 +145,7 @@ class BNN(PyroModule):
                 net_copy.load_state_dict(torch.load(path+filename+"_"+str(model_idx)+".pt"))
                 self.posterior_predictive.update({model_idx:net_copy})      
 
-                print(self.posterior_predictive[model_idx].state_dict()["model.5.bias"])
+                # print(self.posterior_predictive[model_idx].state_dict()["model.5.bias"])
 
             if len(self.posterior_predictive)!=self.n_samples:
                 raise AttributeError("wrong number of posterior models")
@@ -152,7 +153,7 @@ class BNN(PyroModule):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=8, return_logits=True):
+    def forward(self, inputs, n_samples=10, return_logits=True):
 
         if self.inference == "svi":
 
@@ -171,7 +172,8 @@ class BNN(PyroModule):
         elif self.inference == "hmc":
 
             preds = []
-            for value in self.posterior_predictive.values():
+            subset_posterior_predictive = list(self.posterior_predictive.values())[:n_samples]
+            for value in subset_posterior_predictive:
                 preds.append(value.forward(inputs))
     
         logits = nnf.softmax(torch.stack(preds, dim=0).mean(0), dim=-1)
@@ -194,7 +196,7 @@ class BNN(PyroModule):
             x_batch = x_batch.to(device)
             labels = y_batch.to(device).argmax(-1)
             mcmc.run(x_batch, labels)
-            
+
         execution_time(start=start, end=time.time())     
 
         self.posterior_predictive={}
@@ -316,10 +318,10 @@ def main(args):
                         
     bnn = BNN(args.dataset, *init, inp_shape, out_size)
    
-    bnn.train(train_loader=train_loader, device=args.device)
-    # bnn.load(device=args.device, rel_path=TESTS)
+    # bnn.train(train_loader=train_loader, device=args.device)
+    bnn.load(device=args.device, rel_path=TESTS)
 
-    bnn.evaluate(test_loader=test_loader, device=args.device)
+    bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
 
 
 if __name__ == "__main__":
@@ -327,9 +329,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BNN")
 
     parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--dataset", default="mnist", type=str, 
-                        help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--hidden_size", default=128, type=int, help="power of 2 >= 16")
+    parser.add_argument("--dataset", default="half_moons", type=str, 
+                        help="mnist, fashion_mnist, cifar, half_moons")
+    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2 >= 16")
     parser.add_argument("--activation", default="leaky", type=str, 
                         help="relu, leaky, sigm, tanh")
     parser.add_argument("--architecture", default="fc2", type=str, help="conv, fc, fc2")
@@ -338,6 +340,6 @@ if __name__ == "__main__":
     parser.add_argument("--samples", default=10, type=int)
     parser.add_argument("--warmup", default=5, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")  
+    parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
    
     main(args=parser.parse_args())
