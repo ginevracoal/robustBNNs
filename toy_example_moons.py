@@ -25,7 +25,7 @@ from adversarialAttacks import attack, attack_evaluation, load_attack
 
 
 DATA=DATA+"half_moons_grid_search/"
-ACC_THS=65
+ACC_THS=80
 
 #################################
 # exp loss gradients components #
@@ -576,10 +576,14 @@ def build_final_dataset(test_points, device="cuda"):
         elif inference_idx==1:
             inference = ["hmc"]
             n_samples = [250]
-            warmup = [1000]
-            n_inputs = [5000, 10000, 15000]
+
+            # warmup = [1000]
+            # n_inputs = [5000, 10000, 15000]
+            warmup = [200]#,1000]
+            n_inputs = [5000, 10000]
+
             epochs, lr = ([None],[None])
-            rel_path = DATA
+            rel_path = TESTS
 
         hidden_size = [32, 128, 256] 
         activation = ["leaky"]
@@ -630,43 +634,47 @@ def final_scatterplot_samp_vs_hidden(dataset, hidden_size, test_points, device="
     sns.set_style("darkgrid")
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
     matplotlib.rc('font', **{'size': 10})
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 6), dpi=150, 
+    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8, 6), dpi=150, 
                            facecolor='w', edgecolor='k')
 
-    min_acc, max_acc = dataset["test_acc"].min(), dataset["test_acc"].max()
     # print(dataset[dataset["inference"]=="hmc"]["test_acc"].drop_duplicates())
 
-    for r, row_val in enumerate(np.unique(categorical_rows)):
-        for c, col_val in enumerate(np.unique(categorical_cols)):
-
+    norm = matplotlib.colors.Normalize(vmin=ACC_THS,vmax=100)
+    
+    for c, col_val in enumerate(np.unique(categorical_cols)):
+        vmin=dataset[categorical_cols==col_val]["test_acc"].min()
+        for r, row_val in enumerate(np.unique(categorical_rows)):
             df = dataset[(categorical_rows==row_val)&(categorical_cols==col_val)]
-            g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", 
-                                size="test_acc", hue="test_acc", alpha=0.8, 
-                                vmin=min_acc, vmax=max_acc, 
-                                ax=ax[r,c], legend="full", sizes=(20, 80), palette=cmap)
+            legend = "full" if ((c==1)&(r==2)) else None
+            g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", alpha=0.8, 
+                            hue="n_inputs", size="n_inputs", legend=legend, 
+                            # hue="test_acc", hue_norm=norm, size="n_inputs", legend=False, 
+                            ax=ax[r,c], sizes=(30, 80), palette=cmap)
             ax[r,c].set_xlabel("")
             ax[r,c].set_ylabel("")
-            xlim=np.max(np.abs(df["loss_gradients_x"]))+2
-            ylim=np.max(np.abs(df["loss_gradients_y"]))+2
+            xlim=1.1*np.max(np.abs(df["loss_gradients_x"]))
+            ylim=1.1*np.max(np.abs(df["loss_gradients_y"]))
             ax[r,c].set_xlim(-xlim,+xlim)
             ax[r,c].set_ylim(-ylim,+ylim)
 
-            # ax[0,c].xaxis.set_label_position("top")
-            # ax[r,-1].yaxis.set_label_position("right")
-            ax[-1,c].set_xlabel(str(col_val),labelpad=3,fontdict=dict(weight='bold'))
             ax[r,0].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold')) 
+            # ax[0,c].xaxis.set_label_position("top")
 
-    # ## colorbar    
-    # cbar_ax = fig.add_axes([0.93, 0.08, 0.01, 0.8])
+    g.legend(loc='center right', bbox_to_anchor=(1.25, 0.5), ncol=1)
+
+    ax[-1,0].set_xlabel("HMC",labelpad=4,fontdict=dict(weight='bold'))
+    ax[-1,1].set_xlabel("VI",labelpad=4,fontdict=dict(weight='bold'))
+
+    ## colorbar    
+    # cbar_ax = fig.add_axes([0.93, 0.11, 0.01, 0.77])
     # cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap), cax=cbar_ax)
-    # cbar.ax.set_ylabel('Test accuracy (%)', rotation=270, fontdict=dict(weight='bold'))
+    # cbar.ax.set_ylabel('Test accuracy (%)',labelpad=0, rotation=270, fontdict=dict(weight='bold'))
     # cbar.set_ticks([0,1])
     # cbar.set_ticklabels([ACC_THS,100])
     
     ## titles and labels
-    fig.text(0.03, 0.5, "Hidden size", va='center',fontsize=12, rotation='vertical',
+    fig.text(0.02, 0.5, "Hidden size", va='center',fontsize=11, rotation='vertical',
         fontdict=dict(weight='bold'))
-    # fig.text(0.5, 0.01, r"HMC", fontsize=12, ha='center',fontdict=dict(weight='bold'))
     fig.suptitle(r"Expected loss gradients components $\langle \nabla_{x} L(x,w)\rangle_{w}$ on Half Moons dataset",
                fontsize=12, ha='center', fontdict=dict(weight='bold'))
 
@@ -698,8 +706,8 @@ def main(args):
     # === hmc ===
     inference = ["hmc"]
     n_samples = [250]
-    warmup = [1000]
-    n_inputs = [5000, 10000, 15000]
+    warmup = [200]#[1000]
+    n_inputs = [5000, 10000]#, 15000]
     posterior_samples = [250]
     epochs, lr = ([None],[None])
 
