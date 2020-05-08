@@ -96,7 +96,7 @@ def _compute_grads(hidden_size, activation, architecture, inference,
                    epochs, lr, n_samples, warmup, n_inputs, inp_shape, out_size)
     bnn.load(device="cpu", rel_path=rel_path)
     loss_gradients(net=bnn, n_samples=posterior_samples, savedir=bnn.name+"/", 
-                    data_loader=test_loader, device="cpu", filename=bnn.name)
+                    data_loader=test_loader, device=device, filename=bnn.name)
 
 def parallel_compute_grads(hidden_size, activation, architecture, inference, 
                          epochs, lr, n_samples, warmup, n_inputs, posterior_samples, 
@@ -563,6 +563,7 @@ def build_final_dataset(test_points, device="cuda"):
     
     df = pandas.DataFrame(columns=cols)
 
+    row_count = 0
     for inference_idx in [0,1]:
 
         if inference_idx==0:
@@ -572,27 +573,23 @@ def build_final_dataset(test_points, device="cuda"):
             n_inputs = [5000, 10000, 15000]
             n_samples, warmup = ([None],[None])
             rel_path = DATA
+            hidden_size = [32, 128, 256] 
 
         elif inference_idx==1:
             inference = ["hmc"]
             n_samples = [250]
-
-            # warmup = [1000]
-            # n_inputs = [5000, 10000, 15000]
-            warmup = [200]#,1000]
-            n_inputs = [5000, 10000]
-
+            warmup = [100, 200, 500]
+            n_inputs = [5000, 10000, 15000]
             epochs, lr = ([None],[None])
             rel_path = TESTS
+            hidden_size = [32, 128, 256, 512] 
 
-        hidden_size = [32, 128, 256] 
         activation = ["leaky"]
         architecture = ["fc2"]
 
         combinations = list(itertools.product(hidden_size, activation, architecture, inference, 
                                               epochs, lr, n_samples, warmup, n_inputs))
 
-        row_count = 0
         for init in combinations:
 
             bnn = MoonsBNN(*init, inp_shape, out_size)
@@ -621,7 +618,7 @@ def build_final_dataset(test_points, device="cuda"):
               index = False, header=True)
     return df
 
-def final_scatterplot_samp_vs_hidden(dataset, hidden_size, test_points, device="cuda"):
+def final_scatterplot_svi_hmc(dataset, hidden_size, test_points, device="cuda"):
 
     dataset = dataset[dataset["test_acc"]>ACC_THS]
     print("\n---scatterplot_gridSearch_samp_vs_hidden---\n", dataset)
@@ -634,21 +631,23 @@ def final_scatterplot_samp_vs_hidden(dataset, hidden_size, test_points, device="
     sns.set_style("darkgrid")
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
     matplotlib.rc('font', **{'size': 10})
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8, 6), dpi=150, 
-                           facecolor='w', edgecolor='k')
-
+    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(8, 6), dpi=150, facecolor='w', edgecolor='k')
+    
     # print(dataset[dataset["inference"]=="hmc"]["test_acc"].drop_duplicates())
 
-    norm = matplotlib.colors.Normalize(vmin=ACC_THS,vmax=100)
-    
     for c, col_val in enumerate(np.unique(categorical_cols)):
-        vmin=dataset[categorical_cols==col_val]["test_acc"].min()
+
+        vmin = dataset[categorical_cols==col_val]["test_acc"].min()
+        vmax = dataset[categorical_cols==col_val]["test_acc"].max()
+        norm = matplotlib.colors.Normalize(vmin=vmin,vmax=vmax)
+        
         for r, row_val in enumerate(np.unique(categorical_rows)):
             df = dataset[(categorical_rows==row_val)&(categorical_cols==col_val)]
-            legend = "full" if ((c==1)&(r==2)) else None
+
+            # legend = "full" if ((c==1)&(r==2)) else None
             g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", alpha=0.8, 
-                            hue="n_inputs", size="n_inputs", legend=legend, 
-                            # hue="test_acc", hue_norm=norm, size="n_inputs", legend=False, 
+                            # hue="n_inputs", size="n_inputs", legend=legend, 
+                            hue="test_acc", hue_norm=norm, size="n_inputs", legend=False, 
                             ax=ax[r,c], sizes=(30, 80), palette=cmap)
             ax[r,c].set_xlabel("")
             ax[r,c].set_ylabel("")
@@ -660,17 +659,18 @@ def final_scatterplot_samp_vs_hidden(dataset, hidden_size, test_points, device="
             ax[r,0].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold')) 
             # ax[0,c].xaxis.set_label_position("top")
 
-    g.legend(loc='center right', bbox_to_anchor=(1.25, 0.5), ncol=1)
+    ## inputs legend
+    # g.legend(loc='center right', bbox_to_anchor=(1.25, 0.5), ncol=1)
+    
+    ## colorbar    
+    cbar_ax = fig.add_axes([0.93, 0.11, 0.01, 0.77])
+    cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax)
+    cbar.ax.set_ylabel('Test accuracy (%)',labelpad=10, rotation=270, fontdict=dict(weight='bold'))
+    cbar.set_ticks([0,1])
+    cbar.set_ticklabels([ACC_THS,100])
 
     ax[-1,0].set_xlabel("HMC",labelpad=4,fontdict=dict(weight='bold'))
     ax[-1,1].set_xlabel("VI",labelpad=4,fontdict=dict(weight='bold'))
-
-    ## colorbar    
-    # cbar_ax = fig.add_axes([0.93, 0.11, 0.01, 0.77])
-    # cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap), cax=cbar_ax)
-    # cbar.ax.set_ylabel('Test accuracy (%)',labelpad=0, rotation=270, fontdict=dict(weight='bold'))
-    # cbar.set_ticks([0,1])
-    # cbar.set_ticklabels([ACC_THS,100])
     
     ## titles and labels
     fig.text(0.02, 0.5, "Hidden size", va='center',fontsize=11, rotation='vertical',
@@ -682,6 +682,47 @@ def final_scatterplot_samp_vs_hidden(dataset, hidden_size, test_points, device="
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
 
+def final_scatterplot_hmc(dataset, hidden_size, test_points, device="cuda"):
+
+    dataset = dataset[dataset["inference"]=="hmc"]
+    dataset = dataset[dataset["test_acc"]>ACC_THS]
+    print("\n---scatterplot_gridSearch_samp_vs_hidden---\n", dataset)
+
+    categorical_rows = dataset["hidden_size"]
+    nrows = len(np.unique(categorical_rows))
+
+    sns.set_style("darkgrid")
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
+    matplotlib.rc('font', **{'size': 10})
+    fig, ax = plt.subplots(nrows=nrows, ncols=1, figsize=(4, 7), dpi=250, facecolor='w', edgecolor='k')
+    
+    vmin, vmax = (dataset["test_acc"].min(), dataset["test_acc"].max())
+    norm = matplotlib.colors.Normalize(vmin=vmin,vmax=vmax)
+        
+    for r, row_val in enumerate(np.unique(categorical_rows)):
+        df = dataset[categorical_rows==row_val]
+
+        legend = "full" if r==3 else None
+        g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", alpha=0.8, 
+                            hue="n_inputs", size="n_inputs", legend=legend, 
+                            ax=ax[r], sizes=(30, 80), palette=cmap)
+        ax[r].set_xlabel("")
+        ax[r].set_ylabel("")
+        xlim=1.1*np.max(np.abs(df["loss_gradients_x"]))
+        ylim=1.1*np.max(np.abs(df["loss_gradients_y"]))
+        ax[r].set_xlim(-xlim,+xlim)
+        ax[r].set_ylim(-ylim,+ylim)
+        ax[r].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold'),rotation=270) 
+        ax[r].yaxis.set_label_position("right")
+
+    ## titles and labels
+    # fig.text(0.02, 0.5, "Hidden size", va='center',fontsize=10, rotation='vertical',
+    #     fontdict=dict(weight='bold'))
+
+    plt.tight_layout()
+    filename = "halfMoons_final_hmc_"+str(test_points)+".png"
+    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
+    plt.savefig(TESTS + filename)
 
 def main(args):
 
@@ -706,13 +747,13 @@ def main(args):
     # === hmc ===
     inference = ["hmc"]
     n_samples = [250]
-    warmup = [200]#[1000]
-    n_inputs = [5000, 10000]#, 15000]
+    warmup = [100, 200, 500]
+    n_inputs = [5000, 10000, 15000]
     posterior_samples = [250]
     epochs, lr = ([None],[None])
 
     # === grid search ===
-    hidden_size = [32, 128, 256] 
+    hidden_size = [32, 128, 256, 512] 
     activation = ["leaky"]
     architecture = ["fc2"]
     test_points = 100
@@ -749,14 +790,15 @@ def main(args):
     # plot_rob_acc(dataset, test_points, attack, device=args.device)
     # stripplot_rob_acc(dataset, test_points, attack, device=args.device)
 
-    # === final SVI + HMC plot === 
+    # # === final SVI + HMC plot === 
     test_points = 100
     # dataset = build_final_dataset(device=args.device, test_points=test_points)
     dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_final_"+str(test_points)+".csv")
-    final_scatterplot_samp_vs_hidden(dataset, device=args.device, test_points=test_points, 
-                                     hidden_size=[32,128,256])
+    # final_scatterplot_svi_hmc(dataset, device=args.device, test_points=test_points, 
+    #                                  hidden_size=[32,128,256])
 
-
+    final_scatterplot_hmc(dataset, device=args.device, test_points=test_points, 
+                                     hidden_size=[32,128,256,512])
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
