@@ -26,8 +26,11 @@ def softmax_difference(original_predictions, adversarial_predictions):
     Compute the expected l-inf norm of the difference between predictions and adversarial predictions.
     This is point-wise robustness measure.
     """
+
     if len(original_predictions) != len(adversarial_predictions):
         raise ValueError("\nInput arrays should have the same length.")
+
+    print("\n", original_predictions[0], "\t", adversarial_predictions[0])
 
     softmax_diff = original_predictions-adversarial_predictions
     softmax_diff_norms = softmax_diff.abs().max(dim=-1)[0]
@@ -42,7 +45,7 @@ def softmax_robustness(original_outputs, adversarial_outputs):
     perturbations."""
 
     softmax_differences = softmax_difference(original_outputs, adversarial_outputs)
-    robustness = (torch.ones_like(softmax_differences)-softmax_differences).sum(dim=0)/len(original_outputs)
+    robustness = (torch.ones_like(softmax_differences)-softmax_differences).mean()
     print(f"softmax_robustness = {robustness.item():.2f}")
     return robustness.item()
 
@@ -56,9 +59,9 @@ def fgsm_attack(model, image, label, n_samples=None, epsilon=0.3):
     image.requires_grad = True
 
     if n_samples:
-        output = model.forward(image, n_samples, return_logits=True)
+        output = model.forward(image, n_samples)
     else:
-        output = model.forward(image, return_logits=True)
+        output = model.forward(image)
 
     loss = torch.nn.CrossEntropyLoss()(output, label)
     model.zero_grad()
@@ -74,14 +77,14 @@ def fgsm_attack(model, image, label, n_samples=None, epsilon=0.3):
 def pgd_attack(model, image, label, n_samples=None, epsilon=0.3, alpha=2/255, iters=40):
 
     original_image = copy.deepcopy(image)
-
+    
     for i in range(iters):
         image.requires_grad = True  
-        # output = model.forward(image)
+
         if n_samples:
-            output = model.forward(image, n_samples, return_logits=True) 
+            output = model.forward(image, n_samples) 
         else:
-            model.forward(image, return_logits=True)
+            output = model.forward(image)
         loss = torch.nn.CrossEntropyLoss()(output, label)
         model.zero_grad()
         loss.backward()
@@ -115,16 +118,22 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, n_sample
     adversarial_attack = torch.cat(adversarial_attack)
 
     path = TESTS+filename+"/"
-    filename = filename+"_"+str(method)+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else filename+"_attack.pkl"
-    save_to_pickle(data=adversarial_attack, path=path, filename=filename)
+    name = filename+"_"+str(method)
+    name = name+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else name+"_attack.pkl"
+    save_to_pickle(data=adversarial_attack, path=path, filename=name)
     return adversarial_attack
 
 def load_attack(model, method, filename, n_samples=None, rel_path=TESTS):
-    path = rel_path+filename+"/"+filename+"_"+str(method)
-    path = path+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else path+"_attack.pkl"
-    return load_from_pickle(path=path)
+    path = rel_path+filename+"/"
+    name = filename+"_"+str(method)
+    name = name+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else name+"_attack.pkl"
+    return load_from_pickle(path=path+name)
 
 def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
+
+    if device=="cuda":
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
     print(f"\nEvaluating against the attacks", end="")
     if n_samples:
         print(f" with {n_samples} defence samples")
@@ -135,7 +144,7 @@ def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
     x_test = x_test.to(device)
     x_attack = x_attack.to(device)
     y_test = y_test.to(device)
-    model.to(device)
+    # model.to(device)
     if hasattr(model, 'net'):
         model.net.to(device) # fixed layers in BNN
 
