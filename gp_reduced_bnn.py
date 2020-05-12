@@ -15,6 +15,7 @@ from sklearn.gaussian_process.kernels import RBF
 from nn import NN
 from lossGradients import loss_gradients
 from plot.gradients_components import stripplot_gradients_components
+from adversarialAttacks import attack, load_attack, attack_evaluation
 
 
 class GPbaseNN(NN):
@@ -40,7 +41,7 @@ class GPbaseNN(NN):
 
     def forward(self, inputs):
         x = self.out(self.model(inputs))
-        return nn.LogSoftmax(dim=-1)(x)
+        return nn.Softmax(dim=-1)(x)
 
 
 class GPRedBNN:
@@ -54,13 +55,12 @@ class GPRedBNN:
 
     def train(self, x_train, y_train, device):
         
-        x_train = torch.from_numpy(x_train).float().to(device)
         out_train = self.net.model(x_train)
         out_train=out_train.cpu().detach().numpy()
         start = time.time()
         gp = GaussianProcessClassifier(kernel=1.0 * RBF([1.0]), random_state=0,
                                        multi_class='one_vs_rest', n_jobs=10, copy_X_train=False)
-        labels = y_train.argmax(-1)
+        labels = y_train.argmax(-1).cpu().detach().numpy()
         gp.fit(out_train, labels)
         execution_time(start=start, end=time.time())
 
@@ -68,21 +68,21 @@ class GPRedBNN:
         print(out_train, self.gp.predict(out_train))
         self.save(gp=gp, n_inputs=len(x_train))
 
-        # print(self.gp.get_params())
         return gp
 
+    def forward(self, inputs):
+        torch_out = self.net.model(inputs)
+        np_out = torch_out.cpu().detach().numpy()
+        predictions = self.gp.predict_proba(np_out)
+        torch_predictions = torch.from_numpy(predictions).float()
+        return torch_predictions.to("cuda") if inputs.is_cuda else torch_predictions
+
     def evaluate(self, x_test, y_test, device):
-
-        x_test = torch.from_numpy(x_test).float().to(device)
-        out_test = self.net.model(x_test)
-        out_test = out_test.cpu().detach().numpy()
-        predictions = self.gp.predict(out_test)
-
+        predictions = self.forward(x_test).argmax(-1)
         labels = y_test.argmax(-1)
-        # print(self.gp.predict_proba(out_test)[:10])
-        # print(predictions[:10], labels[:10])
-        correct_predictions = np.sum((predictions == labels))
+        print("\npreds =", predictions[:10],"\tlabels =", labels[:10])
 
+        correct_predictions = (predictions == labels).sum()
         accuracy = 100 * correct_predictions / len(x_test)
         print("\nTest accuracy = %.2f%%" % (accuracy))
         return accuracy
@@ -99,15 +99,17 @@ class GPRedBNN:
         name = self.get_filename(n_inputs=n_inputs)
         self.gp = load_from_pickle(rel_path+self.net.name+"/"+name+".pkl")
         self.name = name
-
+        print("\ngp params:", self.gp.get_params())
 
 def main(args):
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-    saved_models = {"half_moons":{"base_inputs":10000, "epochs":10, "lr":0.001, 
-                                  "hidden_size":32, "gp_inputs":1000}}
+    saved_models = {"half_moons":{"base_inputs":10000, "epochs":10, "lr":0.001, # ~99%
+                                  "hidden_size":32, "gp_inputs":1000}, 
+                    "mnist":{"base_inputs":30000, "epochs":15, "lr":0.001,
+                             "hidden_size":32, "gp_inputs":3000}}
 
     base_inputs, epochs, lr, hidden, gp_inputs = saved_models[args.dataset].values()
     
@@ -121,31 +123,33 @@ def main(args):
     # nn.train(train_loader=train_loader, epochs=epochs, lr=lr, device=args.device)
     nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=TESTS)
     nn.evaluate(test_loader=test_loader, device=args.device)
-
+    # exit()
     # === LaplaceRedBNN ===
 
     x_train, y_train, x_test, y_test, _, _ = \
-                            load_dataset(args.dataset, n_inputs=gp_inputs, shuffle=True)
+                        load_dataset(args.dataset, n_inputs=gp_inputs, shuffle=True)
+
+    x_train, y_train = (torch.from_numpy(x_train).to(args.device), 
+                        torch.from_numpy(y_train).to(args.device))
+    x_test, y_test = (torch.from_numpy(x_test).to(args.device), 
+                      torch.from_numpy(y_test).to(args.device))
 
     gp = GPRedBNN(dataset_name=args.dataset, base_net=nn)
 
     # gp.train(x_train=x_train, y_train=y_train, device=args.device)
     gp.load(n_inputs=args.inputs, rel_path=TESTS)
     gp.evaluate(x_test=x_test, y_test=y_test, device=args.device)
-    exit()
-    n_samples_list=[1, 50, 100, 500]
-    loss_gradients_list=[]
-    for posterior_samples in n_samples_list:
+    # exit()
+    # === attack === 
 
-        loss_gradients(net=gp, n_samples=posterior_samples, savedir=gp.name+"/", 
-                        dataseta_loader=test_loader, device=args.device, filename=gp.name)
-        # loss_gradients = load_loss_gradients(n_samples=posterior_samples, filename=gp.name, 
-        #                                      relpath=TESTS, savedir=gp.name+"/")
+    # x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
+    #                   device=args.device, method=args.attack, filename=nn.name)
+    x_attack = load_attack(model=nn, method=args.attack, rel_path=TESTS, filename=nn.name)
 
-        loss_gradients_list.append(loss_gradients)
-
-    stripplot_gradients_components(loss_gradients_list=loss_gradients_list, 
-        n_samples_list=n_samples_list, dataset_name=args.dataset, filename=gp.name)
+    attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
+    
+    gp.evaluate(x_test=x_attack, y_test=y_test, device=args.device)
+    attack_evaluation(model=gp, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
 
 
@@ -158,5 +162,6 @@ if __name__ == "__main__":
     parser.add_argument("--hidden_size", default=16, type=int, help="power of 2")
     parser.add_argument("--epochs", default=10, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")  
+    parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
+    parser.add_argument("--attack", default="fgsm", type=str, help="fgsm, pgd")
     main(args=parser.parse_args())
