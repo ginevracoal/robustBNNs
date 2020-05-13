@@ -85,23 +85,24 @@ class NN(nn.Module):
         x = self.model(inputs)
         return nn.LogSoftmax(dim=-1)(x)
 
-    def save(self, epochs, lr):
+    def save(self, epochs, lr, savedir=None):
         name = self.name +"_ep="+str(epochs)+"_lr="+str(lr)
-
-        os.makedirs(os.path.dirname(TESTS+name+"/"), exist_ok=True)
-        print("\nSaving: ", TESTS+name+"/"+name+"_weights.pt")
-        torch.save(self.state_dict(), TESTS+name+"/"+name+"_weights.pt")
+        directory = name if savedir is None else savedir
+        os.makedirs(os.path.dirname(TESTS+directory+"/"), exist_ok=True)
+        print("\nSaving: ", TESTS+directory+"/"+name+"_weights.pt")
+        torch.save(self.state_dict(), TESTS+directory+"/"+name+"_weights.pt")
 
         if DEBUG:
             print("\nCheck saved weights:")
             print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
             print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-    def load(self, epochs, lr, device, rel_path=TESTS):
+    def load(self, epochs, lr, device, savedir=None, rel_path=TESTS):
         name = self.name +"_ep="+str(epochs)+"_lr="+str(lr)
+        directory = name if savedir is None else savedir
 
-        print("\nLoading: ", rel_path+name+"/"+name+"_weights.pt")
-        self.load_state_dict(torch.load(rel_path+name+"/"+name+"_weights.pt"))
+        print("\nLoading: ", rel_path+directory+"/"+name+"_weights.pt")
+        self.load_state_dict(torch.load(rel_path+directory+"/"+name+"_weights.pt"))
         print("\n", list(self.state_dict().keys()), "\n")
         self.to(device)
 
@@ -188,7 +189,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Base NN")
 
     parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--hidden_size", default=16, type=int, help="power of 2")
+    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2")
     parser.add_argument("--activation", default="leaky", type=str, help="relu, leaky, sigm, tanh")
     parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")

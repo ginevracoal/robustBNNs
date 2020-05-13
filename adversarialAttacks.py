@@ -30,7 +30,7 @@ def softmax_difference(original_predictions, adversarial_predictions):
     if len(original_predictions) != len(adversarial_predictions):
         raise ValueError("\nInput arrays should have the same length.")
 
-    print("\n", original_predictions[0], "\t", adversarial_predictions[0])
+    # print("\n", original_predictions[0], "\t", adversarial_predictions[0])
 
     softmax_diff = original_predictions-adversarial_predictions
     softmax_diff_norms = softmax_diff.abs().max(dim=-1)[0]
@@ -54,7 +54,9 @@ def softmax_robustness(original_outputs, adversarial_outputs):
 # adversarial attacks #
 #######################
 
-def fgsm_attack(model, image, label, n_samples=None, epsilon=0.3):
+def fgsm_attack(model, image, label, hyperparams=None, n_samples=None):
+
+    epsilon = hyperparams["epsilon"] if hyperparams else 0.3
 
     image.requires_grad = True
 
@@ -74,7 +76,12 @@ def fgsm_attack(model, image, label, n_samples=None, epsilon=0.3):
     return perturbed_image
 
 
-def pgd_attack(model, image, label, n_samples=None, epsilon=0.3, alpha=2/255, iters=40):
+def pgd_attack(model, image, label, hyperparams=None, n_samples=None):
+
+    if hyperparams: 
+        epsilon, alpha, iters = (hyperparams["epsilon"], 2/image.max(), 40)
+    else:
+        epsilon, alpha, iters = (0.5, 2/225, 40)
 
     original_image = copy.deepcopy(image)
     
@@ -97,7 +104,8 @@ def pgd_attack(model, image, label, n_samples=None, epsilon=0.3, alpha=2/255, it
     return perturbed_image
 
 
-def attack(net, x_test, y_test, dataset_name, device, method, filename, n_samples=None):
+def attack(net, x_test, y_test, dataset_name, device, method, filename, savedir=None,
+           hyperparams=None, n_samples=None):
 
     print(f"\nProducing {method} attacks on {dataset_name}:")
 
@@ -108,23 +116,25 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, n_sample
         label = y_test[idx].argmax(-1).unsqueeze(0).to(device)
 
         if method == "fgsm":
-            perturbed_image = fgsm_attack(model=net, image=image, label=label, n_samples=n_samples)
+            perturbed_image = fgsm_attack(model=net, image=image, label=label, 
+                                          hyperparams=hyperparams, n_samples=n_samples)
         elif method == "pgd":
-            perturbed_image = pgd_attack(model=net, image=image, label=label, n_samples=n_samples)
+            perturbed_image = pgd_attack(model=net, image=image, label=label, 
+                                          hyperparams=hyperparams, n_samples=n_samples)
 
         adversarial_attack.append(perturbed_image)
 
     # concatenate list of tensors 
     adversarial_attack = torch.cat(adversarial_attack)
 
-    path = TESTS+filename+"/"
+    path = TESTS+filename+"/" if savedir is None else TESTS+savedir+"/"
     name = filename+"_"+str(method)
     name = name+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else name+"_attack.pkl"
     save_to_pickle(data=adversarial_attack, path=path, filename=name)
     return adversarial_attack
 
-def load_attack(model, method, filename, n_samples=None, rel_path=TESTS):
-    path = rel_path+filename+"/"
+def load_attack(model, method, filename, savedir=None, n_samples=None, rel_path=TESTS):
+    path = TESTS+filename+"/" if savedir is None else TESTS+savedir+"/"
     name = filename+"_"+str(method)
     name = name+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else name+"_attack.pkl"
     return load_from_pickle(path=path+name)
@@ -176,7 +186,7 @@ def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
         adversarial_outputs = torch.cat(adversarial_outputs)
         softmax_rob = softmax_robustness(original_outputs, adversarial_outputs)
 
-        return original_accuracy, adversarial_accuracy, softmax_rob
+    return original_accuracy, adversarial_accuracy, softmax_rob
 
 ########
 # main #
