@@ -44,7 +44,7 @@ class BNN(PyroModule):
         self.n_samples = n_samples
         self.warmup = warmup
         self.step_size = 0.001
-        self.num_steps = 10
+        self.num_steps = 30
         self.net = NN(dataset_name=dataset_name, input_shape=input_shape, 
                       output_size=output_size, hidden_size=hidden_size, 
                       activation=activation, architecture=architecture)
@@ -170,13 +170,13 @@ class BNN(PyroModule):
                 print(guide_trace.nodes['module$$$model.1.weight']["fn"].loc[0][:5])
 
         elif self.inference == "hmc":
-
             preds = []
             subset_posterior_predictive = list(self.posterior_predictive.values())[:n_samples]
-            for value in subset_posterior_predictive:
-                preds.append(value.forward(inputs))
-    
-        logits = nnf.softmax(torch.stack(preds, dim=0).mean(0), dim=-1)
+            for net in subset_posterior_predictive:
+                preds.append(net.forward(inputs))
+
+        stacked_preds = torch.stack(preds, dim=0)
+        logits = nnf.softmax(stacked_preds.mean(0), dim=-1)
         labels = logits.argmax(-1)
 
         one_hot_preds = torch.zeros_like(logits)
@@ -188,8 +188,13 @@ class BNN(PyroModule):
         print("\n == HMC training ==")
         pyro.clear_param_store()
 
+        # batch_samples = n_samples
+        num_batches = len(train_loader.dataset)/train_loader.batch_size
+        batch_samples = int(n_samples/num_batches)
+        # print("batch_samples =", batch_samples)
+
         kernel = HMC(self.model, step_size=step_size, num_steps=num_steps)
-        mcmc = MCMC(kernel=kernel, num_samples=n_samples, warmup_steps=warmup, num_chains=1)
+        mcmc = MCMC(kernel=kernel, num_samples=batch_samples, warmup_steps=warmup, num_chains=1)
 
         start = time.time()
         for x_batch, y_batch in train_loader:
@@ -217,7 +222,7 @@ class BNN(PyroModule):
             self.posterior_predictive.update({str(model_idx):net_copy})
 
         if DEBUG:
-            print("\n", weights[model_idx]) # corretto
+            print("\n", weights[model_idx]) 
 
         self.save()
 
@@ -306,7 +311,7 @@ def main(args):
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-    batch_size = 64 if args.inference=="svi" else args.inputs
+    batch_size = 64 #if args.inference=="svi" else args.inputs
     init = (args.hidden_size, args.activation, args.architecture, 
             args.inference, args.epochs, args.lr, args.samples, args.warmup)
     
@@ -318,8 +323,8 @@ def main(args):
                         
     bnn = BNN(args.dataset, *init, inp_shape, out_size)
    
-    # bnn.train(train_loader=train_loader, device=args.device)
-    bnn.load(device=args.device, rel_path=TESTS)
+    bnn.train(train_loader=train_loader, device=args.device)
+    # bnn.load(device=args.device, rel_path=TESTS)
 
     bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
 
