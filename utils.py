@@ -210,7 +210,7 @@ def load_cifar(channels, img_rows=32, img_cols=32):
     num_classes = 10
     return x_train, y_train, x_test, y_test, input_shape, num_classes
 
-def load_dataset(dataset_name, n_inputs=None, channels="first"):
+def load_dataset(dataset_name, n_inputs=None, channels="first", shuffle=False):
 
     if dataset_name == "mnist":
         x_train, y_train, x_test, y_test, input_shape, num_classes = load_mnist(channels)
@@ -229,6 +229,13 @@ def load_dataset(dataset_name, n_inputs=None, channels="first"):
 
     print('x_train shape =', x_train.shape, '\nx_test shape =', x_test.shape)
     print('y_train shape =', y_train.shape, '\ny_test shape =', y_test.shape)
+
+    if shuffle is True:
+        random.seed(0)
+        idxs = np.random.permutation(len(x_train))
+        x_train, y_train = (x_train[idxs], y_train[idxs])
+        idxs = np.random.permutation(len(x_test))
+        x_test, y_test = (x_test[idxs], y_test[idxs])
 
     return x_train, y_train, x_test, y_test, input_shape, num_classes
 
