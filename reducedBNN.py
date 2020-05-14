@@ -16,162 +16,142 @@ from pyro.infer.mcmc import MCMC, HMC, NUTS
 from pyro.infer.mcmc.util import predictive
 from pyro.infer.abstract_infer import TracePredictive
 from pyro.distributions import OneHotCategorical, Normal, Categorical
+from nn import NN
 
 softplus = torch.nn.Softplus()
-
-
 DEBUG=False
 
 
-class NN(nn.Module):
+saved_redBNNs = {"model_0":{"dataset":"mnist", "inference":"svi", "hidden_size":64, 
+                 			"base_inputs":30000, "base_epochs":15, "base_lr":0.001,
+                 			"bnn_inputs":10000, "bnn_epochs":20, "bnn_lr":0.01, 
+                 			"activation":"leaky", "architecture":"fc"}}
 
-	def __init__(self, dataset_name, input_shape, output_size):
-		super(NN, self).__init__()
-		self.dataset_name = dataset_name
-		self.criterion = nn.CrossEntropyLoss()
+
+class baseNN(NN):
+
+	def __init__(self, dataset_name, input_shape, output_size, hidden_size, activation, 
+                       architecture, epochs, lr):
+		super(baseNN, self).__init__(dataset_name, input_shape, output_size, hidden_size, activation, 
+                                 architecture)
+		self.epochs = epochs
+		self.lr = lr
+		self.savedir = str(dataset_name)+"_RedBNN_hid="+str(hidden_size)+\
+		                    "_ep="+str(self.epochs)+"_lr="+str(self.lr)+"/"
+		self.name = str(dataset_name)+"_baseRedNN_hid="+str(hidden_size)+\
+		                    "_ep="+str(self.epochs)+"_lr="+str(self.lr)
+
+	def set_model(self, architecture, activation, input_shape, output_size, hidden_size):
+
+		input_size = input_shape[0]*input_shape[1]*input_shape[2]
 		in_channels = input_shape[0]
 
-		if self.dataset_name == "mnist":
-			self.l1 = nn.Sequential(nn.Conv2d(in_channels, 32, kernel_size=5),
-									nn.LeakyReLU(),
-									nn.MaxPool2d(kernel_size=2))
-			self.l2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=5),
-									nn.LeakyReLU(),
-									nn.MaxPool2d(kernel_size=2),#)
-									nn.Flatten())
-			self.out = nn.Linear(4*4*64, output_size)
+		if activation == "relu":
+			activ = nn.ReLU
+		elif activation == "leaky":
+			activ = nn.LeakyReLU
+		elif activation == "sigm":
+			activ = nn.Sigmoid
+		elif activation == "tanh":
+			activ = nn.Tanh
+		else: 
+			raise AssertionError("\nWrong activation name.")
+
+		### separating the last layer from the others
+		if architecture == "fc":
+			self.model = nn.Sequential(
+				nn.Flatten(), 
+				nn.Linear(input_size, hidden_size),
+				activ())
+			self.out = nn.Linear(hidden_size, output_size)
+
+		elif architecture == "fc2":
+			self.model = nn.Sequential(
+				nn.Flatten(),
+				nn.Linear(input_size, hidden_size),
+				activ(),
+				nn.Linear(hidden_size, hidden_size),
+				activ())
+			self.out = nn.Linear(hidden_size, output_size)
+
+		elif architecture == "conv":
+			self.model = nn.Sequential(
+				nn.Conv2d(in_channels, 32, kernel_size=5),
+				activ(),
+				nn.MaxPool2d(kernel_size=2),
+				nn.Conv2d(32, hidden_size, kernel_size=5),
+				activ(),
+				nn.MaxPool2d(kernel_size=2, stride=1),
+				nn.Flatten())
+			self.out = nn.Linear(int(hidden_size/(4*4))*input_shape, output_size)
 		else:
 			raise NotImplementedError()
 
-	def get_filename(self, epochs, lr):
-		self.filename = str(self.dataset_name)+"_nn_ep="+str(epochs)+"_lr="+str(lr)
-		return self.filename
+	def train(self, train_loader, device):
+		super(baseNN, self).train(train_loader=train_loader, epochs=self.epochs, 
+			                      lr=self.lr, device=device)
 
 	def forward(self, inputs):
-		x = inputs
-
-		x = self.l1(x)
-		x = self.l2(x)
-		# x = x.view(x.size(0), -1)
+		x = self.model(inputs)
 		x = self.out(x)
+		return nn.LogSoftmax(dim=-1)(x)
 
-		output = nn.Softmax(dim=-1)(x)
-		return output
-
-	def save(self, epochs, lr):
-		filename = self.get_filename(epochs, lr)
-		os.makedirs(os.path.dirname(TESTS)+filename+"/", exist_ok=True)
-		print("\nSaving: ", TESTS+filename+"/"+filename+"_weights.pt")
-		torch.save(self.state_dict(), TESTS+filename+"/"+filename+"_weights.pt")
+	def save(self, epochs=None, lr=None):
+		filepath, filename = (TESTS+self.savedir, self.name+"_weights.pt")
+		os.makedirs(os.path.dirname(filepath), exist_ok=True)
+		print("\nSaving: ", filepath+filename)
+		torch.save(self.state_dict(),filepath+filename)
 
 		if DEBUG:
 			print("\nCheck saved weights:")
 			print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
 			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-	def load(self, epochs, lr, device, rel_path=TESTS):
-		filename = self.get_filename(epochs, lr)
-		print("\nLoading: ", rel_path+filename+"/"+filename+"_weights.pt")
-		self.load_state_dict(torch.load(rel_path+filename+"/"+filename+"_weights.pt"))
+	def load(self, rel_path=TESTS, epochs=None, lr=None):
+		filepath, filename = (TESTS+self.savedir, self.name+"_weights.pt")
+		print("\nLoading: ", filepath+filename)
+		self.load_state_dict(torch.load(filepath+filename))
 		# print("\n", list(self.state_dict().keys()), "\n")
-		self.to(device)
+		# self.to(device)
 
 		if DEBUG:
 			print("\nCheck loaded weights:")	
 			print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
 			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-	def train(self, train_loader, epochs, lr, device):
-		print("\n == NN training ==")
-		random.seed(0)
-		self.to(device)
 
-		optimizer = torchopt.Adam(params=self.parameters(), lr=lr)
+def get_hyperparams(model_dict):
 
-		start = time.time()
-		for epoch in range(epochs):
-			total_loss = 0.0
-			correct_predictions = 0.0
-			accuracy = 0.0
-			total = 0.0
-			n_inputs = 0
+	if model_dict["inference"] == "svi":
+		return {"epochs":model_dict["bnn_epochs"], "lr":model_dict["bnn_lr"]}
 
-			for x_batch, y_batch in train_loader:
-				n_inputs += len(x_batch)
-				x_batch = x_batch.to(device)
-				y_batch = y_batch.to(device).argmax(-1)
-				total += y_batch.size(0)
-
-				optimizer.zero_grad()
-				outputs = self.forward(x_batch)
-				loss = self.criterion(outputs, y_batch)
-				loss.backward()
-				optimizer.step()
-
-				predictions = outputs.argmax(dim=1)
-				total_loss += loss.data.item() / len(train_loader.dataset)
-				correct_predictions += (predictions == y_batch).sum()
-				accuracy = 100 * correct_predictions / len(train_loader.dataset)
-
-			# print(self.l2.0.weight.data)
-
-			print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
-				  end="\t")
-
-		execution_time(start=start, end=time.time())
-		self.save(epochs=epochs, lr=lr)
-
-	def evaluate(self, test_loader, device):
-		self.to(device)
-		random.seed(0)
-
-		with torch.no_grad():
-
-			correct_predictions = 0.0
-
-			for x_batch, y_batch in test_loader:
-
-				x_batch = x_batch.to(device)
-				y_batch = y_batch.to(device).argmax(-1)
-				outputs = self(x_batch)
-				predictions = outputs.argmax(dim=1)
-				correct_predictions += (predictions == y_batch).sum()
-
-			accuracy = 100 * correct_predictions / len(test_loader.dataset)
-			print("\nAccuracy: %.2f%%" % (accuracy))
-			return accuracy
+	elif model_dict["inference"] == "hmc":
+		return {"hmc_samples":model_dict["hmc_samples"], "warmup":model_dict["warmup"]}
 
 
 class redBNN(nn.Module):
 
-	def __init__(self, dataset_name, input_shape, output_size, inference, base_net):
+	def __init__(self, dataset_name, inference, hyperparams, base_net):
 		super(redBNN, self).__init__()
 		self.dataset_name = dataset_name
 		self.inference = inference
-		self.net = base_net
+		self.base_net = base_net
+		self.hyperparams = hyperparams
 
-	def get_hyperparams(self, args):
-
-		if self.inference == "svi":
-			return {"epochs":args.epochs, "lr":args.lr}
-
-		elif self.inference == "hmc":
-			return {"hmc_samples":args.hmc_samples, "warmup":args.warmup}
-
-	def get_filename(self, n_inputs, hyperparams):
+	def get_filename(self, n_inputs):
 
 		if self.inference == "svi":
 			return str(self.dataset_name)+"_redBNN_inp="+str(n_inputs)+"_ep="+\
-			       str(hyperparams["epochs"])+"_lr="+str(hyperparams["lr"])+"_"+\
+			       str(self.hyperparams["epochs"])+"_lr="+str(self.hyperparams["lr"])+"_"+\
 			       str(self.inference)
 
 		elif self.inference == "hmc":
 			return str(self.dataset_name)+"_redBNN_inp="+str(n_inputs)+"_samp="+\
-			       str(hyperparams["hmc_samples"])+"_warm="+str(hyperparams["warmup"])+\
+			       str(self.hyperparams["hmc_samples"])+"_warm="+str(self.hyperparams["warmup"])+\
 			       "_"+str(self.inference)
 
 	def model(self, x_data, y_data):
-		net = self.net
+		net = self.base_net
 
 		if self.inference == "svi":
 			for weights_name in pyro.get_param_store():
@@ -190,8 +170,7 @@ class redBNN(nn.Module):
 		return cond_model
 
 	def guide(self, x_data, y_data=None):
-
-		net = self.net 
+		net = self.base_net 
 
 		outw_mu = torch.randn_like(net.out.weight)
 		outw_sigma = torch.randn_like(net.out.weight)
@@ -210,49 +189,48 @@ class redBNN(nn.Module):
 		logits = F.log_softmax(lifted_module(x_data), dim=-1)
 		return logits
  
-	def save(self, n_inputs, hyperparams):
+	def save(self, n_inputs):
 
-		path = TESTS + self.get_filename(n_inputs, hyperparams)+"/"
-		filename = self.get_filename(n_inputs, hyperparams)+"_weights"
-		os.makedirs(os.path.dirname(path), exist_ok=True)
+		filepath, filename = (TESTS+self.base_net.savedir, self.get_filename(n_inputs)+"_weights")
+		os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
 		if self.inference == "svi":
-			self.net.to("cpu")
+			self.base_net.to("cpu")
 			self.to("cpu")
 			param_store = pyro.get_param_store()
-			print("\nSaving: ", path + filename +".pt")
+			print("\nSaving: ", filepath + filename +".pt")
 			print(f"\nlearned params = {param_store.get_all_param_names()}")
-			param_store.save(path + filename +".pt")
+			param_store.save(filepath + filename +".pt")
 
 		elif self.inference == "hmc":
-			self.net.to("cpu")
+			self.base_net.to("cpu")
 			self.to("cpu")
-			save_to_pickle(data=self.posterior_samples, path=path, filename=filename+".pkl")
+			save_to_pickle(data=self.posterior_samples, path=filepath, filename=filename+".pkl")
 
-	def load(self, n_inputs, hyperparams, device, rel_path=TESTS):
+	def load(self, n_inputs, device, rel_path=TESTS):
 
-		path = rel_path+self.get_filename(n_inputs, hyperparams)+"/"
-		filename = self.get_filename(n_inputs, hyperparams)+"_weights"
+		filepath, filename = (TESTS+self.base_net.savedir, self.get_filename(n_inputs)+"_weights")
 
 		if self.inference == "svi":
 			param_store = pyro.get_param_store()
-			param_store.load(path + filename + ".pt")
-			print("\nLoading ", path + filename + ".pt\n")
+			param_store.load(filepath + filename + ".pt")
+			print("\nLoading ", filepath + filename + ".pt\n")
 
 		elif self.inference == "hmc":
-			posterior_samples = load_from_pickle(path + filename + ".pkl")
+			posterior_samples = load_from_pickle(filepath + filename + ".pkl")
 			self.posterior_samples = posterior_samples
-			print("\nLoading ", path + filename + ".pkl\n")
+			print("\nLoading ", filepath + filename + ".pkl\n")
 
-		self.to(device)
-		self.net.to(device)
+		# self.to(device)
+		self.base_net.to(device)
 
-	def forward(self, inputs, n_samples=100):
+	def forward(self, inputs, n_samples=10):
 
 		if self.inference == "svi":
 
 			if DEBUG:
-				print("\nguide_trace =", list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
+				print("\nguide_trace =", 
+					list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
 
 			preds = []
 			for i in range(n_samples):
@@ -270,31 +248,31 @@ class redBNN(nn.Module):
 		elif self.inference == "hmc":
 
 			if DEBUG:
-				print("\nself.net.state_dict() keys = ", self.net.state_dict().keys())
+				print("\nself.base_net.state_dict() keys = ", self.base_net.state_dict().keys())
 
 			preds = []
 			n_samples = min(n_samples, len(self.posterior_samples["module$$$out.weight"]))
 			for i in range(n_samples):
-				state_dict = self.net.state_dict()
+				state_dict = self.base_net.state_dict()
 				out_w = self.posterior_samples["module$$$out.weight"][i]
 				out_b = self.posterior_samples["module$$$out.bias"][i]
 				state_dict.update({"out.weight":out_w, "out.bias":out_b})
-				self.net.load_state_dict(state_dict)
-				preds.append(self.net.forward(inputs))
+				self.base_net.load_state_dict(state_dict)
+				preds.append(self.base_net.forward(inputs))
 
 				if DEBUG:
 					print("\nl2.0.weight should be fixed:\n", 
-						  self.net.state_dict()["l2.0.weight"][0,0,:3])
-					print("\nout.weight should change:\n", self.net.state_dict()["out.weight"][0][:3])	
+						  self.base_net.state_dict()["l2.0.weight"][0,0,:3])
+					print("\nout.weight should change:\n", self.base_net.state_dict()["out.weight"][0][:3])	
 		
-		print(f"{n_samples} post samp", end="\t")
+		# print(f"({n_samples} post samp)", end="\t")
 		pred = torch.stack(preds, dim=0)
 		return pred.mean(0) 
 
-	def _train_hmc(self, train_loader, hyperparams, device):
+	def _train_hmc(self, train_loader, device):
 		print("\n == redBNN HMC training ==")
 
-		num_samples, warmup_steps = (hyperparams["hmc_samples"], hyperparams["warmup"])
+		num_samples, warmup_steps = (self.hyperparams["hmc_samples"], self.hyperparams["warmup"])
 
 		# kernel = HMC(self.model, step_size=0.0855, num_steps=4)
 		kernel = NUTS(self.model)
@@ -320,10 +298,10 @@ class redBNN(nn.Module):
 		self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
 		return self.posterior_samples
 
-	def _train_svi(self, train_loader, hyperparams, device):
+	def _train_svi(self, train_loader, device):
 		print("\n == redBNN SVI training ==")
 
-		epochs, lr = hyperparams["epochs"], hyperparams["lr"]
+		epochs, lr = (self.hyperparams["epochs"], self.hyperparams["lr"])
 
 		optimizer = pyro.optim.Adam({"lr":lr})
 		elbo = TraceMeanField_ELBO()
@@ -360,25 +338,24 @@ class redBNN(nn.Module):
 				  end="\t")
 
 		execution_time(start=start, end=time.time())
-
 		hyperparams = {"epochs":epochs, "lr":lr}	
-		self.save(n_inputs=len(train_loader.dataset), hyperparams=hyperparams)
+		self.save(n_inputs=len(train_loader.dataset))
 
-	def train(self, train_loader, hyperparams, device):
+	def train(self, train_loader, device):
 		self.to(device)
-		self.net.to(device)
+		self.base_net.to(device)
 		random.seed(0)
 		pyro.set_rng_seed(0)
 
 		if self.inference == "svi":
-			self._train_svi(train_loader, hyperparams, device)
+			self._train_svi(train_loader, device)
 
 		elif self.inference == "hmc":
-			self._train_hmc(train_loader, hyperparams, device)
+			self._train_hmc(train_loader, device)
 
-	def evaluate(self, test_loader, device):
+	def evaluate(self, test_loader, device, n_samples=10):
 		self.to(device)
-		self.net.to(device)
+		self.base_net.to(device)
 		random.seed(0)
 		pyro.set_rng_seed(0)
 
@@ -390,7 +367,7 @@ class redBNN(nn.Module):
 
 				x_batch = x_batch.to(device)
 				y_batch = y_batch.to(device).argmax(-1)
-				outputs = self.forward(x_batch)
+				outputs = self.forward(x_batch, n_samples=n_samples)
 				predictions = outputs.argmax(dim=1)
 				correct_predictions += (predictions == y_batch).sum()
 
@@ -401,40 +378,38 @@ class redBNN(nn.Module):
 
 def main(args):
 
-	# === load dataset ===
-	train_loader, test_loader, inp_shape, out_size = \
-							data_loaders(dataset_name=args.dataset, batch_size=256, 
-										 n_inputs=args.inputs, shuffle=True)
+	m = saved_redBNNs["model_0"]
+
+	if args.device=="cuda":
+		torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
 	# === base NN ===
+	train_loader, test_loader, inp_shape, out_size = \
+							data_loaders(dataset_name=m["dataset"], batch_size=64, 
+										 n_inputs=m["base_inputs"], shuffle=True)
 
-	# dataset, epochs, lr, rel_path = (args.dataset, args.epochs, args.lr, TESTS)		
-	dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)	
-
-	nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
-	# nn.train(train_loader=train_loader, epochs=args.epochs, lr=args.lr, device=args.device)
-	nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
+	nn = baseNN(dataset_name=m["dataset"], input_shape=inp_shape, output_size=out_size,
+		        epochs=m["base_epochs"], lr=m["base_lr"], hidden_size=m["hidden_size"], 
+		        activation=m["activation"], architecture=m["architecture"])
+	# nn.train(train_loader=train_loader, device=args.device)
+	nn.load(rel_path=TESTS)
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
 	# === reducedBNN ===
-	bnn = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-		         inference=args.inference, base_net=nn)
-	hyperparams = bnn.get_hyperparams(args)
-	bnn.train(train_loader=train_loader, hyperparams=hyperparams, device=args.device)
-	# bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
+	train_loader, test_loader, inp_shape, out_size = \
+							data_loaders(dataset_name=m["dataset"], batch_size=128, 
+										 n_inputs=m["bnn_inputs"], shuffle=True)
+	hyperparams = get_hyperparams(m)
+
+	bnn = redBNN(dataset_name=m["dataset"], inference=m["inference"], 
+		         base_net=nn, hyperparams=hyperparams)
+	bnn.train(train_loader=train_loader, device=args.device)
+	# bnn.load(n_inputs=m["bnn_inputs"], hyperparams=hyperparams, device=args.device, rel_path=TESTS)
 	bnn.evaluate(test_loader=test_loader, device=args.device)
 	
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="reduced BNN")
-
-    parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
-    parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--hmc_samples", default=5, type=int)
-    parser.add_argument("--warmup", default=10, type=int)
-    parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")	
-
+    parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")	
     main(args=parser.parse_args())
