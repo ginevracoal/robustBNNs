@@ -6,11 +6,13 @@ import pyro
 import random
 import copy
 import torch
-from reducedBNN import NN, redBNN
+# from reducedBNN import NN, redBNN
 from utils import load_dataset, save_to_pickle, load_from_pickle
 import numpy as np
 from torch.utils.data import DataLoader
 from bnn import BNN
+import torch.nn.functional as nnf
+
 
 DEBUG=False
 
@@ -19,7 +21,6 @@ DEBUG=False
 # robustness measures #
 #######################
 
-# todo:debug
 
 def softmax_difference(original_predictions, adversarial_predictions):
     """
@@ -27,10 +28,15 @@ def softmax_difference(original_predictions, adversarial_predictions):
     This is point-wise robustness measure.
     """
 
+    original_predictions = nnf.softmax(original_predictions, dim=-1)
+    adversarial_predictions = nnf.softmax(adversarial_predictions, dim=-1)
+
+    # print(original_predictions.sum(-1))
+
     if len(original_predictions) != len(adversarial_predictions):
         raise ValueError("\nInput arrays should have the same length.")
 
-    # print("\n", original_predictions[0], "\t", adversarial_predictions[0])
+    print("\n", original_predictions[0], "\t", adversarial_predictions[0])
 
     softmax_diff = original_predictions-adversarial_predictions
     softmax_diff_norms = softmax_diff.abs().max(dim=-1)[0]

@@ -11,12 +11,14 @@ from pyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 import torch.optim as torchopt
 from pyro import poutine
 import pyro.optim as pyroopt
-import torch.nn.functional as F
 from pyro.infer.mcmc import MCMC, HMC, NUTS
 from pyro.infer.mcmc.util import predictive
 from pyro.infer.abstract_infer import TracePredictive
 from pyro.distributions import OneHotCategorical, Normal, Categorical
 from nn import NN
+import pandas
+
+from gp_reduced_bnn import attack_increasing_eps, plot_increasing_eps
 
 softplus = torch.nn.Softplus()
 DEBUG=False
@@ -24,8 +26,9 @@ DEBUG=False
 
 saved_redBNNs = {"model_0":{"dataset":"mnist", "inference":"svi", "hidden_size":64, 
                  			"base_inputs":30000, "base_epochs":15, "base_lr":0.001,
-                 			"bnn_inputs":10000, "bnn_epochs":20, "bnn_lr":0.01, 
-                 			"activation":"leaky", "architecture":"fc"}}
+                 			"bnn_inputs":10000, "bnn_epochs":30, "bnn_lr":0.01, 
+                 			# "bnn_inputs":60000, "bnn_epochs":30, "bnn_lr":0.01, 
+                 			"activation":"leaky", "architecture":"fc2"}}
 
 
 class baseNN(NN):
@@ -37,7 +40,7 @@ class baseNN(NN):
 		self.epochs = epochs
 		self.lr = lr
 		self.savedir = str(dataset_name)+"_RedBNN_hid="+str(hidden_size)+\
-		                    "_ep="+str(self.epochs)+"_lr="+str(self.lr)+"/"
+		                    "_ep="+str(self.epochs)+"_lr="+str(self.lr)
 		self.name = str(dataset_name)+"_baseRedNN_hid="+str(hidden_size)+\
 		                    "_ep="+str(self.epochs)+"_lr="+str(self.lr)
 
@@ -91,13 +94,13 @@ class baseNN(NN):
 		super(baseNN, self).train(train_loader=train_loader, epochs=self.epochs, 
 			                      lr=self.lr, device=device)
 
-	def forward(self, inputs):
+	def forward(self, inputs, train=False):
 		x = self.model(inputs)
 		x = self.out(x)
-		return nn.LogSoftmax(dim=-1)(x)
+		return nnf.log_softmax(x, dim=-1) if train is True else nnf.softmax(x, dim=-1)
 
 	def save(self, epochs=None, lr=None):
-		filepath, filename = (TESTS+self.savedir, self.name+"_weights.pt")
+		filepath, filename = (TESTS+self.savedir+"/", self.name+"_weights.pt")
 		os.makedirs(os.path.dirname(filepath), exist_ok=True)
 		print("\nSaving: ", filepath+filename)
 		torch.save(self.state_dict(),filepath+filename)
@@ -108,7 +111,7 @@ class baseNN(NN):
 			print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
 	def load(self, rel_path=TESTS, epochs=None, lr=None):
-		filepath, filename = (TESTS+self.savedir, self.name+"_weights.pt")
+		filepath, filename = (TESTS+self.savedir+"/", self.name+"_weights.pt")
 		print("\nLoading: ", filepath+filename)
 		self.load_state_dict(torch.load(filepath+filename))
 		# print("\n", list(self.state_dict().keys()), "\n")
@@ -165,7 +168,7 @@ class redBNN(nn.Module):
 		
 		priors = {'out.weight': outw_prior, 'out.bias': outb_prior}
 		lifted_module = pyro.random_module("module", net, priors)()
-		lhat = F.log_softmax(lifted_module(x_data), dim=-1)
+		lhat = nnf.log_softmax(lifted_module(x_data), dim=-1)
 		cond_model = pyro.sample("obs", Categorical(logits=lhat), obs=y_data)
 		return cond_model
 
@@ -186,12 +189,12 @@ class redBNN(nn.Module):
 
 		priors = {'out.weight': outw_prior, 'out.bias': outb_prior}
 		lifted_module = pyro.random_module("module", net, priors)()
-		logits = F.log_softmax(lifted_module(x_data), dim=-1)
+		logits = nnf.log_softmax(lifted_module(x_data), dim=-1)
 		return logits
  
 	def save(self, n_inputs):
 
-		filepath, filename = (TESTS+self.base_net.savedir, self.get_filename(n_inputs)+"_weights")
+		filepath, filename = (TESTS+self.base_net.savedir+"/", self.get_filename(n_inputs)+"_weights")
 		os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
 		if self.inference == "svi":
@@ -209,7 +212,7 @@ class redBNN(nn.Module):
 
 	def load(self, n_inputs, device, rel_path=TESTS):
 
-		filepath, filename = (TESTS+self.base_net.savedir, self.get_filename(n_inputs)+"_weights")
+		filepath, filename = (TESTS+self.base_net.savedir+"/", self.get_filename(n_inputs)+"_weights")
 
 		if self.inference == "svi":
 			param_store = pyro.get_param_store()
@@ -224,7 +227,7 @@ class redBNN(nn.Module):
 		# self.to(device)
 		self.base_net.to(device)
 
-	def forward(self, inputs, n_samples=10):
+	def forward(self, inputs, n_samples=100):
 
 		if self.inference == "svi":
 
@@ -265,9 +268,8 @@ class redBNN(nn.Module):
 						  self.base_net.state_dict()["l2.0.weight"][0,0,:3])
 					print("\nout.weight should change:\n", self.base_net.state_dict()["out.weight"][0][:3])	
 		
-		# print(f"({n_samples} post samp)", end="\t")
-		pred = torch.stack(preds, dim=0)
-		return pred.mean(0) 
+		stacked_preds = torch.stack(preds, dim=0)
+		return nnf.softmax(stacked_preds.mean(0), dim=-1)
 
 	def _train_hmc(self, train_loader, device):
 		print("\n == redBNN HMC training ==")
@@ -399,17 +401,24 @@ def main(args):
 	train_loader, test_loader, inp_shape, out_size = \
 							data_loaders(dataset_name=m["dataset"], batch_size=128, 
 										 n_inputs=m["bnn_inputs"], shuffle=True)
-	hyperparams = get_hyperparams(m)
+	hyp = get_hyperparams(m)
 
-	bnn = redBNN(dataset_name=m["dataset"], inference=m["inference"], 
-		         base_net=nn, hyperparams=hyperparams)
-	bnn.train(train_loader=train_loader, device=args.device)
-	# bnn.load(n_inputs=m["bnn_inputs"], hyperparams=hyperparams, device=args.device, rel_path=TESTS)
+	bnn = redBNN(dataset_name=m["dataset"], inference=m["inference"], base_net=nn, hyperparams=hyp)
+	# bnn.train(train_loader=train_loader, device=args.device)
+	bnn.load(n_inputs=m["bnn_inputs"], device=args.device, rel_path=TESTS)
 	bnn.evaluate(test_loader=test_loader, device=args.device)
 	
+	# === multiple attacks ===
+	bnn_samples = 1000
+	# df = attack_increasing_eps(nn=nn, bnn=bnn, dataset=m["dataset"], device=args.device, 
+	# 	                       method=args.attack, n_samples=bnn_samples)
+	df = pandas.read_csv(TESTS+str(m["dataset"])+"_increasing_eps_"+str(args.attack)+".csv")
+	plot_increasing_eps(df, dataset=m["dataset"], method=args.attack, n_samples=bnn_samples)
+
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="reduced BNN")
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")	
+    parser.add_argument("--attack", default="fgsm", type=str, help="fgsm, pgd")
     main(args=parser.parse_args())
