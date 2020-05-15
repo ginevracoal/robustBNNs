@@ -25,12 +25,12 @@ from adversarialAttacks import attack, load_attack, attack_evaluation
 saved_GPbaseNNs = {"half_moons":{"base_inputs":10000, "epochs":10, "lr":0.001, "hidden_size":32, 
                                  "gp_inputs":2000}, 
                    "mnist":{"base_inputs":30000, "epochs":20, "lr":0.001, "hidden_size":64, 
-                            "gp_inputs":3000}}
+                            "gp_inputs":5000}}
 
 class GPbaseNN(NN):
     def __init__(self, dataset_name, input_shape, output_size, hidden_size, epochs, lr):
         super(GPbaseNN, self).__init__(dataset_name, input_shape, output_size, hidden_size,
-                                        activation="leaky", architecture="fc2")
+                                        activation="leaky", architecture="fc")
         self.criterion = nn.CrossEntropyLoss()
         self.dataset_name = dataset_name
         self.hidden_size = hidden_size
@@ -131,7 +131,7 @@ class GPRedBNN:
         self.name = name
 
 
-def attack_increasing_eps(nn, bnn, dataset, device, method, n_inputs=100):
+def attack_increasing_eps(nn, bnn, dataset, device, method, n_inputs=100, n_samples=100):
 
     _, _, x_test, y_test, _, _ = load_dataset(dataset, n_inputs=n_inputs, shuffle=True)
     x_test, y_test = (torch.from_numpy(x_test).to(device), torch.from_numpy(y_test).to(device))
@@ -140,7 +140,7 @@ def attack_increasing_eps(nn, bnn, dataset, device, method, n_inputs=100):
                                    "softmax_rob", "model_type"])
 
     row_count = 0
-    for epsilon in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]:
+    for epsilon in [0.1, 0.15, 0.2, 0.25, 0.3]:
 
         df_dict = {"epsilon":epsilon, "attack":method}
         hyperparams = {"epsilon":epsilon}
@@ -149,14 +149,15 @@ def attack_increasing_eps(nn, bnn, dataset, device, method, n_inputs=100):
         x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
                           device=device, method=method, filename=nn.name+"_eps="+str(epsilon), 
                           savedir=nn.savedir, hyperparams=hyperparams)
-        # x_attack = load_attack(model=nn, method=attack, rel_path=TESTS, 
+        # x_attack = load_attack(model=nn, method=attack, rel_path=TESTS, n_samples=n_samples,
         #                        savedir=nn.name, filename=nn.name+"_eps="+str(epsilon))
         
         ### defending with both networks
         for net, model_type in [(nn,"nn"), (bnn, "bnn")]:
-
+            n_samp = n_samples if model_type == "bnn" else None
             test_acc, adv_acc, softmax_rob = attack_evaluation(model=net, x_test=x_test, 
-                                              x_attack=x_attack, y_test=y_test, device=device)
+                        n_samples=n_samp, x_attack=x_attack, y_test=y_test, device=device)
+            
             df_dict.update({"test_acc":test_acc, "adv_acc":adv_acc,
                             "softmax_rob":softmax_rob, "model_type":model_type})
 
@@ -168,18 +169,18 @@ def attack_increasing_eps(nn, bnn, dataset, device, method, n_inputs=100):
     df.to_csv(TESTS+str(dataset)+"_increasing_eps_"+str(method)+".csv", index = False, header=True)
     return df
 
-def plot_increasing_eps(df, dataset, method):
+def plot_increasing_eps(df, dataset, method, n_samples):
     print(df)
 
     sns.set_style("darkgrid")
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
     matplotlib.rc('font', **{'size': 10})
     fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(8, 6), dpi=150, facecolor='w', edgecolor='k')
-    
+    plt.suptitle(f"{method} attack on {dataset}")
     sns.lineplot(data=df, x="epsilon", y="adv_acc", hue="model_type", style="model_type", ax=ax[0])
     sns.lineplot(data=df, x="epsilon", y="softmax_rob", hue="model_type", style="model_type", ax=ax[1])
     
-    filename = str(dataset)+"_increasing_eps_"+str(method)+".png"
+    filename = str(dataset)+"_increasing_eps_"+str(method)+"_samp="+str(n_samples)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
 
@@ -213,8 +214,8 @@ def main(args):
 
     gp = GPRedBNN(dataset_name=args.dataset, base_net=nn)
 
-    gp.train(x_train=x_train, y_train=y_train, device=args.device)
-    # gp.load(n_inputs=gp_inputs, rel_path=TESTS)
+    # gp.train(x_train=x_train, y_train=y_train, device=args.device)
+    gp.load(n_inputs=gp_inputs, rel_path=TESTS)
     gp.evaluate(x_test=x_test, y_test=y_test, device=args.device)
 
     # === single attack === 
@@ -226,9 +227,11 @@ def main(args):
     # attack_evaluation(model=gp, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
     # === multiple attacks ===
-    df = attack_increasing_eps(nn=nn, bnn=gp, dataset=args.dataset, device=args.device, method=args.attack)
+    gp_samples = 100
+    df = attack_increasing_eps(nn=nn, bnn=gp, dataset=args.dataset, device=args.device, 
+                                method=args.attack, n_samples=gp_samples)
     # df = pandas.read_csv(TESTS+str(args.dataset)+"_increasing_eps_"+str(args.attack)+".csv")
-    plot_increasing_eps(df, dataset=args.dataset, method=args.attack)
+    plot_increasing_eps(df, dataset=args.dataset, method=args.attack, n_samples=gp_samples)
 
 
 if __name__ == "__main__":
