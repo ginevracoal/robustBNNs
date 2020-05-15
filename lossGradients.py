@@ -8,7 +8,7 @@ from utils import save_to_pickle, load_from_pickle, data_loaders
 import numpy as np
 import pyro
 from bnn import BNN, saved_bnns
-from reducedBNN import NN, redBNN
+# from reducedBNN import NN, redBNN
 
 
 DEBUG=False

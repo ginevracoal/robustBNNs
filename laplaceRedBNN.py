@@ -24,7 +24,6 @@ saved_LaplaceRedBNNs = {"mnist": (60000, 23, 0.001)}
 
 
 class LaplaceRedBNN(redBNN):
-    # pyro implementation
 
     def __init__(self, dataset_name, input_shape, output_size, base_net):
         super(LaplaceRedBNN, self).__init__(dataset_name, input_shape, output_size, 

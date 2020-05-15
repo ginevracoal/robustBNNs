@@ -133,7 +133,7 @@ class NN(nn.Module):
                 total += y_batch.size(0)
 
                 optimizer.zero_grad()
-                outputs = self.forward(x_batch)
+                outputs = self.forward(x_batch, train=True)
                 loss = self.criterion(outputs, y_batch)
                 loss.backward()
                 optimizer.step()
@@ -142,6 +142,8 @@ class NN(nn.Module):
                 total_loss += loss.data.item() / len(train_loader.dataset)
                 correct_predictions += (predictions == y_batch).sum()
                 accuracy = 100 * correct_predictions / len(train_loader.dataset)
+
+            # print(self.model.weight.data) # fixed for redBNNs
 
             print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
                   end="\t")

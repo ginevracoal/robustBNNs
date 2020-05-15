@@ -8,7 +8,7 @@ import seaborn as sns
 import pandas as pd
 import os
 
-def gradient_components(loss_gradients_list, n_samples_list, dataset_name, filename):
+def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_name, filename):
 
     matplotlib.rc('font', **{'weight': 'bold', 'size': 12})
     fig, ax = plt.subplots(1, 1, figsize=(10, 5), dpi=150, facecolor='w', edgecolor='k')
@@ -130,7 +130,7 @@ def main(args):
                                              relpath=TESTS, savedir=filename+"/")
         loss_gradients_list.append(loss_gradients)
     
-    gradient_components(loss_gradients_list=loss_gradients_list, n_samples_list=n_samples_list,
+    stripplot_gradients_components(loss_gradients_list=loss_gradients_list, n_samples_list=n_samples_list,
                              dataset_name=args.dataset, filename=filename)
 
     # vanishing_gradients_heatmaps(loss_gradients_list=loss_gradients_list, 

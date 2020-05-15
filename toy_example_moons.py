@@ -25,7 +25,7 @@ from adversarialAttacks import attack, attack_evaluation, load_attack
 
 
 DATA=DATA+"half_moons_grid_search/"
-ACC_THS=80
+ACC_THS=70
 
 #################################
 # exp loss gradients components #
@@ -57,7 +57,7 @@ def plot_half_moons(n_points=200):
 def _train(hidden_size, activation, architecture, inference, 
            epochs, lr, n_samples, warmup, n_inputs, posterior_samples, device):
 
-    batch_size = 64 if inference=="svi" else n_inputs
+    batch_size = 64 if inference=="svi" else 1024
     train_loader, _, inp_shape, out_size = \
             data_loaders(dataset_name="half_moons", batch_size=batch_size, 
                          n_inputs=n_inputs, shuffle=False)
@@ -181,13 +181,15 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, posterior_samples, hidden_siz
                            facecolor='w', edgecolor='k')
 
     min_acc, max_acc = dataset["test_acc"].min(), dataset["test_acc"].max()
+    print(min_acc, max_acc)
 
-    for r, row_val in enumerate(hidden_size):
-        for c, col_val in enumerate(posterior_samples):
+    for c, col_val in enumerate(posterior_samples):
+        for r, row_val in enumerate(hidden_size):
 
+            legend = "full" if (r==3)&(c==2) else None
             df = dataset[(categorical_rows==row_val)&(categorical_cols==col_val)]
             g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", 
-                                size="n_inputs", hue="n_inputs", alpha=0.8, legend=False,
+                                size="n_inputs", hue="n_inputs", alpha=0.8, legend=legend,
                                 # vmin=min_acc, vmax=max_acc,  
                                 ax=ax[r,c], sizes=(20, 80), palette=cmap)
             ax[r,c].set_xlabel("")
@@ -201,6 +203,8 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, posterior_samples, hidden_siz
             # ax[r,-1].yaxis.set_label_position("right")
             ax[-1,c].set_xlabel(str(col_val),labelpad=3,fontdict=dict(weight='bold'))
             ax[r,0].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold')) 
+
+    g.legend(loc='center right', bbox_to_anchor=(1.25, 0.5), ncol=1)
 
     ## colorbar    
     # cbar_ax = fig.add_axes([0.93, 0.08, 0.01, 0.8])
@@ -746,23 +750,24 @@ def main(args):
 
     # === hmc ===
     inference = ["hmc"]
-    n_samples = [250]
+    n_samples = [50]#250]
 
     # warmup = [100, 200, 500]
     # n_inputs = [5000, 10000, 15000]
-    warmup = [10, 50, 100]
-    n_inputs = [50,100,1000]
+    # test_points = 99
 
-    posterior_samples = [1,50,250]
+    warmup = [50]#, 100, 500]
+    n_inputs = [5000]#5000, 10000, 15000]
+    test_points = 100
+
+    posterior_samples = [10,20,50]#1, 50,250]
     epochs, lr = ([None],[None])
 
     # === grid search ===
     hidden_size = [32, 128, 256, 512] 
     activation = ["leaky"]
     architecture = ["fc2"]
-    test_points = 98
     attack = "fgsm"
-
     init = (hidden_size, activation, architecture, inference, 
             epochs, lr, n_samples, warmup, n_inputs, posterior_samples)
 
@@ -772,16 +777,31 @@ def main(args):
     # serial_train(*init)
     # parallel_train(*init)
 
-    serial_compute_grads(*init, rel_path=TESTS, test_points=test_points)
+    # serial_compute_grads(*init, rel_path=TESTS, test_points=test_points)
     # parallel_compute_grads(*init, rel_path=TESTS, test_points=test_points)
     # parallel_grid_attack(attack, *init, rel_path=TESTS, test_points=test_points) 
     ## grid_attack(attack, *init, test_points=test_points, device="cuda", rel_path=DATA) 
 
     # === plots ===
-    dataset = build_components_dataset(*init, device=args.device, test_points=test_points, rel_path=TESTS)
-    # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
+    # dataset = build_components_dataset(*init, device=args.device, test_points=test_points, rel_path=TESTS)
+    dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
     scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device=args.device, 
          test_points=test_points, posterior_samples=posterior_samples, hidden_size=hidden_size)
+
+    # === concat datasets ===
+    # warmup = [100, 200, 500]
+    # n_inputs = [5000, 10000, 15000]
+    # test_points = 99
+    # dataset1 = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
+
+    # warmup = [10, 50, 100]
+    # n_inputs = [50,100,1000]
+    # test_points = 98
+    # dataset2 = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
+    
+    # df = pandas.concat([dataset1, dataset2], ignore_index=True)
+    # scatterplot_gridSearch_samp_vs_hidden(dataset=df, device=args.device, 
+    #      test_points=200, posterior_samples=posterior_samples, hidden_size=hidden_size)
 
     # dataset = build_variance_dataset(*init, device=args.device, test_points=test_points, rel_path=DATA)
     # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_compVariance_"+str(test_points)+".csv")

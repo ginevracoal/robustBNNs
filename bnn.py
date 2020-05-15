@@ -30,6 +30,8 @@ RETURN_LOGITS=False
 saved_bnns = {"mnist":(512, "leaky", "conv", "svi", 5, 0.01, None, None), # 96%
               "fashion_mnist":(1024, "leaky", "conv", "svi", 10, 0.001, None, None)} # 77%
 
+savedBNNs = {"model_2":(64, "leaky", "fc", "svi", 30, 0.01, None, None)}
+
 
 class BNN(PyroModule):
 
@@ -315,7 +317,9 @@ def main(args):
     init = (args.hidden_size, args.activation, args.architecture, 
             args.inference, args.epochs, args.lr, args.samples, args.warmup)
     
+    # todo: refactor load saved models
     # init = saved_bnns[args.dataset]
+    init = savedBNNs["model_2"]
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=args.dataset, batch_size=batch_size, 
