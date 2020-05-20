@@ -17,8 +17,8 @@ from pyro.infer.abstract_infer import TracePredictive
 from pyro.distributions import OneHotCategorical, Normal, Categorical
 from nn import NN
 import pandas
+from adversarialAttacks import attack_increasing_eps, plot_increasing_eps
 
-from gp_reduced_bnn import attack_increasing_eps, plot_increasing_eps
 
 softplus = torch.nn.Softplus()
 DEBUG=False
@@ -269,7 +269,9 @@ class redBNN(nn.Module):
 					print("\nout.weight should change:\n", self.base_net.state_dict()["out.weight"][0][:3])	
 		
 		stacked_preds = torch.stack(preds, dim=0)
-		return nnf.softmax(stacked_preds.mean(0), dim=-1)
+		logits = nnf.softmax(stacked_preds.mean(0), dim=-1)
+		# print(logits)
+		return logits
 
 	def _train_hmc(self, train_loader, device):
 		print("\n == redBNN HMC training ==")
@@ -355,7 +357,7 @@ class redBNN(nn.Module):
 		elif self.inference == "hmc":
 			self._train_hmc(train_loader, device)
 
-	def evaluate(self, test_loader, device, n_samples=10):
+	def evaluate(self, test_loader, device, n_samples=100):
 		self.to(device)
 		self.base_net.to(device)
 		random.seed(0)
@@ -397,7 +399,7 @@ def main(args):
 	nn.load(rel_path=TESTS)
 	nn.evaluate(test_loader=test_loader, device=args.device)
 
-	# === reducedBNN ===
+	## === reducedBNN ===
 	train_loader, test_loader, inp_shape, out_size = \
 							data_loaders(dataset_name=m["dataset"], batch_size=128, 
 										 n_inputs=m["bnn_inputs"], shuffle=True)
@@ -407,12 +409,12 @@ def main(args):
 	# bnn.train(train_loader=train_loader, device=args.device)
 	bnn.load(n_inputs=m["bnn_inputs"], device=args.device, rel_path=TESTS)
 	bnn.evaluate(test_loader=test_loader, device=args.device)
-	
+
 	# === multiple attacks ===
-	bnn_samples = 1000
-	# df = attack_increasing_eps(nn=nn, bnn=bnn, dataset=m["dataset"], device=args.device, 
-	# 	                       method=args.attack, n_samples=bnn_samples)
-	df = pandas.read_csv(TESTS+str(m["dataset"])+"_increasing_eps_"+str(args.attack)+".csv")
+	bnn_samples = 100
+	df = attack_increasing_eps(nn=nn, bnn=bnn, dataset=m["dataset"], device=args.device, 
+		                       method=args.attack, n_samples=bnn_samples)
+	# df = pandas.read_csv(TESTS+nn.savedir+"/"+str(m["dataset"])+"_increasing_eps_"+str(args.attack)+"_samp="+str(bnn_samples)+".csv")
 	plot_increasing_eps(df, dataset=m["dataset"], method=args.attack, n_samples=bnn_samples)
 
 

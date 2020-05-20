@@ -9,8 +9,10 @@ import numpy as np
 import torch.optim as torchopt
 import torch.nn.functional as F
 
-
 DEBUG = False
+
+saved_NNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
+                        "architecture":"conv", "epochs":10, "lr":0.01}}
 
 
 class NN(nn.Module):
@@ -87,7 +89,7 @@ class NN(nn.Module):
 
     def save(self, epochs, lr, savedir=None):
         name = self.name +"_ep="+str(epochs)+"_lr="+str(lr)
-        directory = name if savedir is None else savedir
+        directory = name if savedir is None else self.savedir
         os.makedirs(os.path.dirname(TESTS+directory+"/"), exist_ok=True)
         print("\nSaving: ", TESTS+directory+"/"+name+"_weights.pt")
         torch.save(self.state_dict(), TESTS+directory+"/"+name+"_weights.pt")
@@ -133,7 +135,7 @@ class NN(nn.Module):
                 total += y_batch.size(0)
 
                 optimizer.zero_grad()
-                outputs = self.forward(x_batch, train=True)
+                outputs = self.forward(x_batch)#, train=True)
                 loss = self.criterion(outputs, y_batch)
                 loss.backward()
                 optimizer.step()
@@ -177,13 +179,12 @@ def main(args):
                             data_loaders(dataset_name=args.dataset, batch_size=64, 
                                          n_inputs=args.inputs, shuffle=True)
 
-    dataset, epochs, lr, rel_path = (args.dataset, args.epochs, args.lr, TESTS)       
-    # dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)  
+    # dataset, hid, activ, arch, ep, lr = (args.dataset, args.hidden_size, args.activation, args.epochs, args.lr)       
+    dataset, hid, activ, arch, ep, lr = saved_NNs["model_0"].values()
 
-    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
-            hidden_size=args.hidden_size, activation=args.activation, architecture=args.architecture)
-    nn.train(train_loader=train_loader, epochs=epochs, lr=lr, device=args.device)
-    # nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
+    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, hidden_size=hid, activation=activ, architecture=arch)
+    nn.train(train_loader=train_loader, epochs=ep, lr=lr, device=args.device)
+    # nn.load(epochs=ep, lr=lr, device=args.device, rel_path=DATA)
     nn.evaluate(test_loader=test_loader, device=args.device)
 
 
@@ -197,6 +198,6 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")  
+    parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
 
     main(args=parser.parse_args())

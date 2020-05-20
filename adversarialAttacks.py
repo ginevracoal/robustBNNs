@@ -6,15 +6,15 @@ import pyro
 import random
 import copy
 import torch
-# from reducedBNN import NN, redBNN
+from nn import NN, saved_NNs
+from bnn import BNN, saved_BNNs
+# from reducedBNN import redBNN
 from utils import load_dataset, save_to_pickle, load_from_pickle
 import numpy as np
 from torch.utils.data import DataLoader
-from bnn import BNN
 import torch.nn.functional as nnf
-
-
-DEBUG=False
+import pandas
+import os
 
 
 #######################
@@ -51,9 +51,9 @@ def softmax_robustness(original_outputs, adversarial_outputs):
     perturbations."""
 
     softmax_differences = softmax_difference(original_outputs, adversarial_outputs)
-    robustness = (torch.ones_like(softmax_differences)-softmax_differences).mean()
-    print(f"softmax_robustness = {robustness.item():.2f}")
-    return robustness.item()
+    robustness = (torch.ones_like(softmax_differences)-softmax_differences)#.mean().item()
+    print(f"avg softmax robustness = {robustness.mean().item():.2f}")
+    return robustness
 
 
 #######################
@@ -194,6 +194,67 @@ def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
 
     return original_accuracy, adversarial_accuracy, softmax_rob
 
+
+def attack_increasing_eps(nn, bnn, dataset, device, method, n_inputs=100, n_samples=100, savedir=None):
+
+    savedir = nn.savedir if hasattr(nn, 'savedir') else "attack"
+
+    _, _, x_test, y_test, _, _ = load_dataset(dataset, n_inputs=n_inputs, shuffle=True)
+    x_test, y_test = (torch.from_numpy(x_test).to(device), torch.from_numpy(y_test).to(device))
+
+    df = pandas.DataFrame(columns=["attack", "epsilon", "test_acc", "adv_acc", 
+                                   "softmax_rob", "model_type"])
+
+    row_count = 0
+    for epsilon in [0.1, 0.15, 0.2, 0.25, 0.3]:
+
+        df_dict = {"epsilon":epsilon, "attack":method}
+        hyperparams = {"epsilon":epsilon}
+
+        ### attacking the base network
+        x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
+                          device=device, method=method, filename=nn.name+"_eps="+str(epsilon), 
+                          savedir=savedir, hyperparams=hyperparams)
+        # x_attack = load_attack(model=nn, method=attack, rel_path=TESTS, n_samples=n_samples,
+        #                        savedir=savedir, filename=nn.name+"_eps="+str(epsilon))
+        
+        ### defending with both networks
+        for net, model_type in [(nn,"nn"), (bnn, "bnn")]:
+            n_samp = n_samples if model_type == "bnn" else None
+            test_acc, adv_acc, softmax_rob = attack_evaluation(model=net, x_test=x_test, 
+                        n_samples=n_samp, x_attack=x_attack, y_test=y_test, device=device)
+            
+            for pointwise_rob in softmax_rob:
+                df_dict.update({"test_acc":test_acc, "adv_acc":adv_acc,
+                                "softmax_rob":pointwise_rob.item(), "model_type":model_type})
+
+                df.loc[row_count] = pandas.Series(df_dict)
+                row_count += 1
+
+    print("\nSaving:", df)
+    os.makedirs(os.path.dirname(TESTS+savedir+"/"), exist_ok=True)
+    df.to_csv(TESTS+savedir+"/"+str(dataset)+"_increasing_eps_"+str(method)+"_samp="+str(n_samples)+".csv", 
+              index = False, header=True)
+    return df
+
+def plot_increasing_eps(df, dataset, method, n_samples):
+    print(df)
+    import seaborn as sns
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    sns.set_style("darkgrid")
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
+    matplotlib.rc('font', **{'size': 10})
+    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(8, 6), dpi=150, facecolor='w', edgecolor='k')
+    plt.suptitle(f"{method} attack on {dataset}")
+    sns.lineplot(data=df, x="epsilon", y="adv_acc", hue="model_type", style="model_type", ax=ax[0])
+    sns.lineplot(data=df, x="epsilon", y="softmax_rob", hue="model_type", style="model_type", ax=ax[1])
+    
+    filename = str(dataset)+"_increasing_eps_"+str(method)+"_samp="+str(n_samples)+".png"
+    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
+    plt.savefig(TESTS + filename)
+
 ########
 # main #
 ########
@@ -202,43 +263,50 @@ def main(args):
 
     _, _, x_test, y_test, inp_shape, out_size = \
                                 load_dataset(dataset_name=args.dataset, n_inputs=args.inputs)
+    x_test, y_test = torch.from_numpy(x_test), torch.from_numpy(y_test)
 
-    x_test = torch.from_numpy(x_test)
-    y_test = torch.from_numpy(y_test)
+    dataset, hid, activ, arch, ep, lr = saved_NNs["model_0"].values()
+    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size,
+            hidden_size=hid, activation=activ, architecture=arch)
+    nn.load(epochs=ep, lr=lr, device=args.device, rel_path=TESTS)
 
-    # dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, DATA)    
-    # nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
-    # nn.load(epochs=epochs, lr=lr, device=args.device, rel_path=rel_path)
-
-    # # x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
+    # # x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
     # #                   device=args.device, method=args.attack, filename=nn.filename)
     # x_attack = load_attack(model=nn, method=args.attack, rel_path=DATA, filename=nn.filename)
 
     # attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
 
     # === BNN ===
-    init = ("mnist", 512, "leaky", "conv", "svi", 5, 0.01, None, None) # 96% 
+    model = saved_BNNs["model_0"]
+    dataset, init = list(model.values())[0], list(model.values())[1:]
+    bnn = BNN(dataset, *init, inp_shape, out_size)
+    bnn.load(device=args.device, rel_path=TESTS)
 
-    bnn = BNN(*init, inp_shape, out_size)
-    bnn.load(device=args.device, rel_path=DATA)
+    # for attack_samples in [1,10,50]:
+    #     x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
+    #                       device=args.device, method=args.attack, filename=bnn.name, 
+    #                       n_samples=attack_samples)
 
-    for attack_samples in [1,10,50]:
-        x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=args.dataset, 
-                          device=args.device, method=args.attack, filename=bnn.name, 
-                          n_samples=attack_samples)
+    #     for defence_samples in [attack_samples, 100]:
+    #         attack_evaluation(model=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
+    #                           device=args.device, n_samples=defence_samples)
 
-        for defence_samples in [attack_samples, 100]:
-            attack_evaluation(model=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
-                              device=args.device, n_samples=defence_samples)
 
-    exit()
     # === redBNN ===
 
-    rBNN = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
-                 inference=args.inference, base_net=nn)
-    hyperparams = rBNN.get_hyperparams(args)
-    rBNN.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
-    attack_evaluation(model=rBNN, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
+    # rBNN = redBNN(dataset_name=args.dataset, input_shape=inp_shape, output_size=out_size, 
+    #              inference=args.inference, base_net=nn)
+    # hyperparams = rBNN.get_hyperparams(args)
+    # rBNN.load(n_inputs=args.inputs, hyperparams=hyperparams, device=args.device, rel_path=TESTS)
+    # attack_evaluation(model=rBNN, x_test=x_test, x_attack=x_attack, y_test=y_test, device=args.device)
+
+    # === multiple attacks ===
+
+    bnn_samples = 100
+    df = attack_increasing_eps(nn=nn, bnn=bnn, dataset=dataset, device=args.device, 
+                               method=args.attack, n_samples=bnn_samples)
+    # df = pandas.read_csv(TESTS+nn.savedir+"/"+str(dataset)+"_increasing_eps_"+str(args.attack)+"_samp="+str(bnn_samples)+".csv")
+    plot_increasing_eps(df, dataset=dataset, method=args.attack, n_samples=bnn_samples)
 
 
 if __name__ == "__main__":
@@ -246,13 +314,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Adversarial attacks")
 
     parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, cifar, fashion_mnist")
+    parser.add_argument("--dataset", default="half_moons", type=str, 
+                        help="mnist, fashion_mnist, cifar, half_moons")
     parser.add_argument("--attack", default="fgsm", type=str, help="fgsm, pgd")
-    parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
-    parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--samples", default=30, type=int)
-    parser.add_argument("--warmup", default=10, type=int)
-    parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help="cpu, cuda")   
-
+    parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")   
     main(args=parser.parse_args())

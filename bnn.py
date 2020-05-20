@@ -27,10 +27,12 @@ DEBUG=False
 RETURN_LOGITS=False
 
 
-saved_bnns = {"mnist":(512, "leaky", "conv", "svi", 5, 0.01, None, None), # 96%
-              "fashion_mnist":(1024, "leaky", "conv", "svi", 10, 0.001, None, None)} # 77%
+# saved_bnns = {"mnist":(512, "leaky", "conv", "svi", 5, 0.01, None, None), # 96%
+#               "fashion_mnist":(1024, "leaky", "conv", "svi", 10, 0.001, None, None)} # 77%
 
-savedBNNs = {"model_2":(64, "leaky", "fc", "svi", 30, 0.01, None, None)}
+saved_BNNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
+                         "architecture":"conv", "inference":"svi", "epochs":10, "lr":0.01,
+                         "n_samples":None, "warmup":None}}
 
 
 class BNN(PyroModule):
@@ -313,19 +315,17 @@ def main(args):
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-    batch_size = 64 #if args.inference=="svi" else args.inputs
-    init = (args.hidden_size, args.activation, args.architecture, 
-            args.inference, args.epochs, args.lr, args.samples, args.warmup)
-    
-    # todo: refactor load saved models
-    # init = saved_bnns[args.dataset]
-    init = savedBNNs["model_2"]
 
+    # dataset, init = args.dataset, (args.hidden_size, args.activation, args.architecture, 
+    #                                  args.inference, args.epochs, args.lr, args.samples, args.warmup)
+    
+    model = saved_BNNs["model_0"]
+    dataset, init = list(model.values())[0], list(model.values())[1:]
     train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=args.dataset, batch_size=batch_size, 
+                            data_loaders(dataset_name=dataset, batch_size=64, 
                                          n_inputs=args.inputs, shuffle=True)
                         
-    bnn = BNN(args.dataset, *init, inp_shape, out_size)
+    bnn = BNN(dataset, *init, inp_shape, out_size)
    
     bnn.train(train_loader=train_loader, device=args.device)
     # bnn.load(device=args.device, rel_path=TESTS)
