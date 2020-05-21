@@ -157,21 +157,35 @@ class BNN(PyroModule):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=10, return_logits=True):
+    def forward(self, inputs, n_samples=10, return_logits=True, avg_posterior=False):
 
         if self.inference == "svi":
 
-            preds = []  
-            for _ in range(n_samples):
-                guide_trace = poutine.trace(self.guide).get_trace(inputs)   
-                preds.append(guide_trace.nodes['_RETURN']['value'])
+            if avg_posterior is True:
 
-            if DEBUG:
-                print("\nlearned variational params:\n")
-                print(pyro.get_param_store().get_all_param_names())
-                print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
-                print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
-                print(guide_trace.nodes['module$$$model.1.weight']["fn"].loc[0][:5])
+                guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+
+                # carico i pesi della loc posterior nella rete di base self.net e valuto su quella
+                avg_state_dict = {}
+                for key in self.net.state_dict().keys():
+                    avg_weights = guide_trace.nodes[str(key)+"_loc"]['value']
+                    avg_state_dict.update({str(key):avg_weights})
+
+                self.net.load_state_dict(avg_state_dict)
+                preds = [self.net.model(inputs)]
+
+            else:
+                preds = []  
+                for _ in range(n_samples):
+                    guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                    preds.append(guide_trace.nodes['_RETURN']['value'])
+
+                if DEBUG:
+                    print("\nlearned variational params:\n")
+                    print(pyro.get_param_store().get_all_param_names())
+                    print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
+                    print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
+                    print(guide_trace.nodes['module$$$model.1.weight']["fn"].loc[0][:5])
 
         elif self.inference == "hmc":
             preds = []

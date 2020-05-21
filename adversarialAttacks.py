@@ -60,16 +60,16 @@ def softmax_robustness(original_outputs, adversarial_outputs):
 # adversarial attacks #
 #######################
 
-def fgsm_attack(model, image, label, hyperparams=None, n_samples=None):
+def fgsm_attack(model, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
 
     epsilon = hyperparams["epsilon"] if hyperparams else 0.3
 
     image.requires_grad = True
 
-    if n_samples:
-        output = model.forward(image, n_samples)
+    if n_samples or avg_posterior:
+        output = model.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
     else:
-        output = model.forward(image)
+        output = model.forward(inputs=image)
 
     loss = torch.nn.CrossEntropyLoss()(output, label)
     model.zero_grad()
@@ -82,7 +82,7 @@ def fgsm_attack(model, image, label, hyperparams=None, n_samples=None):
     return perturbed_image
 
 
-def pgd_attack(model, image, label, hyperparams=None, n_samples=None):
+def pgd_attack(model, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
 
     if hyperparams: 
         epsilon, alpha, iters = (hyperparams["epsilon"], 2/image.max(), 40)
@@ -94,10 +94,11 @@ def pgd_attack(model, image, label, hyperparams=None, n_samples=None):
     for i in range(iters):
         image.requires_grad = True  
 
-        if n_samples:
-            output = model.forward(image, n_samples) 
+        if n_samples or avg_posterior:
+            output = model.forward(image, n_samples, avg_posterior)
         else:
             output = model.forward(image)
+
         loss = torch.nn.CrossEntropyLoss()(output, label)
         model.zero_grad()
         loss.backward()
@@ -111,7 +112,7 @@ def pgd_attack(model, image, label, hyperparams=None, n_samples=None):
 
 
 def attack(net, x_test, y_test, dataset_name, device, method, filename, savedir=None,
-           hyperparams=None, n_samples=None):
+           hyperparams=None, n_samples=None, avg_posterior=False):
 
     print(f"\nProducing {method} attacks on {dataset_name}:")
 
@@ -123,10 +124,12 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, savedir=
 
         if method == "fgsm":
             perturbed_image = fgsm_attack(model=net, image=image, label=label, 
-                                          hyperparams=hyperparams, n_samples=n_samples)
+                                          hyperparams=hyperparams, n_samples=n_samples,
+                                          avg_posterior=avg_posterior)
         elif method == "pgd":
             perturbed_image = pgd_attack(model=net, image=image, label=label, 
-                                          hyperparams=hyperparams, n_samples=n_samples)
+                                          hyperparams=hyperparams, n_samples=n_samples,
+                                          avg_posterior=avg_posterior)
 
         adversarial_attack.append(perturbed_image)
 
@@ -212,11 +215,9 @@ def attack_increasing_eps(nn, bnn, dataset, device, method, n_inputs=100, n_samp
         hyperparams = {"epsilon":epsilon}
 
         ### attacking the base network
-        x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
+        x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, n_samples = 1,
                           device=device, method=method, filename=nn.name+"_eps="+str(epsilon), 
                           savedir=savedir, hyperparams=hyperparams)
-        # x_attack = load_attack(model=nn, method=attack, rel_path=TESTS, n_samples=n_samples,
-        #                        savedir=savedir, filename=nn.name+"_eps="+str(epsilon))
         
         ### defending with both networks
         for net, model_type in [(nn,"nn"), (bnn, "bnn")]:
@@ -254,6 +255,67 @@ def plot_increasing_eps(df, dataset, method, n_samples):
     filename = str(dataset)+"_increasing_eps_"+str(method)+"_samp="+str(n_samples)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
+
+def attack_increasing_eps_avg_posterior(nn, bnn, dataset, device, method, n_inputs=100, savedir=None):
+
+    savedir = nn.savedir if hasattr(nn, 'savedir') else "attack"
+
+    _, _, x_test, y_test, _, _ = load_dataset(dataset, n_inputs=n_inputs, shuffle=True)
+    x_test, y_test = (torch.from_numpy(x_test).to(device), torch.from_numpy(y_test).to(device))
+
+    df = pandas.DataFrame(columns=["attack", "epsilon", "test_acc", "adv_acc", 
+                                   "softmax_rob", "defence_samples"])
+
+    row_count = 0
+    for epsilon in [0.1, 0.15, 0.2, 0.25, 0.3]:
+
+        df_dict = {"epsilon":epsilon, "attack":method}
+        hyperparams = {"epsilon":epsilon}
+        
+        ### attacking the avg network
+        x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
+                          device=device, method=method, filename=nn.name+"_eps="+str(epsilon), 
+                          savedir=savedir, hyperparams=hyperparams, avg_posterior=True)
+
+        ### defending with different n_samples
+        for n_samples in [1, 100, 500]:
+            test_acc, adv_acc, softmax_rob = attack_evaluation(model=bnn, x_test=x_test, 
+                        n_samples=n_samples, x_attack=x_attack, y_test=y_test, device=device)
+            
+            for pointwise_rob in softmax_rob:
+                df_dict.update({"test_acc":test_acc, "adv_acc":adv_acc,
+                                "softmax_rob":pointwise_rob.item(), "defence_samples":n_samples})
+
+                df.loc[row_count] = pandas.Series(df_dict)
+                row_count += 1
+
+    print("\nSaving:", df)
+    os.makedirs(os.path.dirname(TESTS+savedir+"/"), exist_ok=True)
+    df.to_csv(TESTS+savedir+"/"+str(dataset)+"_increasing_eps_"+str(method)+"_avg_posterior.csv", 
+              index = False, header=True)
+    return df
+
+def plot_increasing_eps_avg_posterior(df, dataset, method):
+    print(df)
+    import seaborn as sns
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    sns.set_style("darkgrid")
+    palette = ["orange","darkred","black"]
+    matplotlib.rc('font', **{'size': 10})
+    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(8, 6), dpi=150, facecolor='w', edgecolor='k')
+    plt.suptitle(f"{method} attack on {dataset}")
+    sns.lineplot(data=df, x="epsilon", y="adv_acc", hue="defence_samples", 
+                 palette=palette,style="defence_samples", ax=ax[0], legend="full")
+    g = sns.lineplot(data=df, x="epsilon", y="softmax_rob", hue="defence_samples", 
+                 palette=palette, style="defence_samples", ax=ax[1], legend=False)
+    # g.legend(loc='upper right')
+    
+    filename = str(dataset)+"_increasing_eps_"+str(method)+"_avg_posterior.png"
+    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
+    plt.savefig(TESTS + filename)
+
 
 ########
 # main #
@@ -303,10 +365,13 @@ def main(args):
     # === multiple attacks ===
 
     bnn_samples = 100
-    df = attack_increasing_eps(nn=nn, bnn=bnn, dataset=dataset, device=args.device, 
-                               method=args.attack, n_samples=bnn_samples)
+    # df = attack_increasing_eps(nn=nn, bnn=bnn, dataset=dataset, device=args.device, method=args.attack, n_samples=bnn_samples)
     # df = pandas.read_csv(TESTS+nn.savedir+"/"+str(dataset)+"_increasing_eps_"+str(args.attack)+"_samp="+str(bnn_samples)+".csv")
-    plot_increasing_eps(df, dataset=dataset, method=args.attack, n_samples=bnn_samples)
+    # plot_increasing_eps(df, dataset=dataset, method=args.attack, n_samples=bnn_samples)
+
+    # df = attack_increasing_eps_avg_posterior(nn=nn, bnn=bnn, dataset=dataset, device=args.device, method=args.attack)
+    df = pandas.read_csv(TESTS+"attack/"+str(dataset)+"_increasing_eps_"+str(args.attack)+"_avg_posterior.csv")
+    plot_increasing_eps_avg_posterior(df, dataset=dataset, method=args.attack)
 
 
 if __name__ == "__main__":
