@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import os
+from bnn import saved_bnns
+from utils import load_dataset
+
 
 def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_name, filename):
 
@@ -47,33 +50,49 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path + filename + "_gradComponents.png")
 
-def vanishing_gradient_heatmap(gradients, n_samples_list, norm):
+def vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
 
-    fig, axs = plt.subplots(nrows=1, ncols=len(n_samples_list), figsize=(12, 4))
-    fig.tight_layout(h_pad=2, w_pad=2)
+    fig, axs = plt.subplots(nrows=1, ncols=len(n_samples_list)+1, figsize=(12, 3))
 
+    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["black","darkred","orangered","orange"])
+    matplotlib.rc('font', **{'size': 11, 'weight':'bold'})
+    bottom, width, height = (.17, .01, .66)
+
+    cbar_ax = fig.add_axes([.2, bottom, width, height])
+    sns.heatmap(image, ax=axs[0], square=True, cmap=cmap, cbar_ax=cbar_ax)#, cbar_kws={'shrink': shrink})
+    
     vmin, vmax = (np.min(gradients), np.max(gradients))
-
     for col_idx, samples in enumerate(n_samples_list):
         loss_gradient = gradients[col_idx]
-        sns.heatmap(loss_gradient, cmap="YlGnBu", ax=axs[col_idx], square=True, vmin=vmin, 
-                    vmax=vmax,  cbar_kws={'shrink': 0.5})
-        axs[col_idx].tick_params(left="off", bottom="off", labelleft='off', labelbottom='off')
+        
+        cbar_ax = fig.add_axes([.93, bottom, width, height])
+        sns.heatmap(loss_gradient, ax=axs[col_idx+1], square=True, cmap=cmap,
+                    vmin=vmin, vmax=vmax, cbar_ax=cbar_ax, #cbar_kws={'shrink': shrink}, 
+                    cbar=True if col_idx+1==len(n_samples_list) else False)
 
         if norm == "linfty":
-            norm = np.max(np.abs(loss_gradient))
+            grad_norm = np.max(np.abs(loss_gradient))
             expr = r"$|\langle\nabla_x L(x,w)\rangle_w|_\infty$"
 
         elif norm == "l2":
-            norm = np.linalg.norm(x=loss_gradient, ord=2)
+            grad_norm = np.linalg.norm(x=loss_gradient, ord=2)
             expr = r"$|\langle\nabla_x L(x,w)\rangle_w|_2$"
 
-        axs[col_idx].set_title(f"{expr} = {norm:.3f}", fontsize=11)
-        axs[col_idx].set_xlabel(f"Samples = {samples}", fontsize=10)
+        print(f"vmin={vmin}\tvmax={vmax}\tgrad_norm={grad_norm}")
+        axs[col_idx+1].set_title(f"{expr} = {grad_norm:.6f}", fontsize=11, weight="bold")
+        axs[col_idx+1].set_xlabel(f"Samples = {samples}", fontsize=10, weight="bold")
 
+    for ax in axs:
+        ax.tick_params(left="off", bottom="off", labelleft='off', labelbottom='off')
+        ax.set_xticks([], []) 
+        ax.set_yticks([], []) 
+        ax.set_xticklabels("")
+        ax.set_yticklabels("")
+
+    fig.tight_layout(h_pad=2, w_pad=3, rect=[0,0,0.93,1])
     return fig
 
-def vanishing_gradients_heatmaps(loss_gradients_list, n_samples_list, filename, norm="l2"):
+def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, filename, norm="linfty"):
 
     transposed_gradients = np.transpose(np.array(loss_gradients_list), axes=(1, 0, 2, 3))
     if transposed_gradients.shape[1] != len(n_samples_list):
@@ -81,12 +100,16 @@ def vanishing_gradients_heatmaps(loss_gradients_list, n_samples_list, filename, 
 
     vanishing_idxs = compute_vanishing_norms_idxs(loss_gradients=transposed_gradients, 
                                                   n_samples_list=n_samples_list, norm=norm)
-    vanishing_loss_gradients = transposed_gradients[vanishing_idxs]
+    test_images = load_dataset(dataset_name=dataset, n_inputs=np.max(vanishing_idxs)+1, 
+                               shuffle=False)[2]
 
-    for im_idx, im_gradients in enumerate(vanishing_loss_gradients):
+    for im_idx in vanishing_idxs:
+        
+        original_im = test_images[im_idx].squeeze()
+        im_gradients = transposed_gradients[im_idx]
+        fig = vanishing_gradient_heatmap(original_im, im_gradients, 
+                                         n_samples_list=n_samples_list, norm=norm)
 
-        fig = vanishing_gradient_heatmap(im_gradients, n_samples_list=n_samples_list, 
-                                         norm=norm)
         path=TESTS+filename+"/vanishing_gradients_heatmaps/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
         fig.savefig(path+filename+"_vanGrad_"+str(im_idx)+".png")
@@ -95,18 +118,34 @@ def vanishing_gradients_heatmaps(loss_gradients_list, n_samples_list, filename, 
 
 def main(args):
 
+    if args.device=="cuda":
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs,
-                     shuffle=True)
+                     shuffle=False)
 
     # === load BNN ===
-    hidden_size, activation, architecture, inference, \
-            epochs, lr, samples, warmup = saved_bnns[args.dataset]
 
-    bnn = BNN(args.dataset, hidden_size, activation, architecture, inference,
-              epochs, lr, samples, warmup, inp_shape, out_size)
+    ### old models
+    # hidden_size, activation, architecture, inference, \
+    #         epochs, lr, samples, warmup = saved_bnns[args.dataset]
 
-    bnn.load(device=args.device, rel_path=DATA)
+    # bnn = BNN(args.dataset, hidden_size, activation, architecture, inference,
+    #           epochs, lr, samples, warmup, inp_shape, out_size)
+
+    # bnn.load(device=args.device, rel_path=DATA)
+    # filename = bnn.name
+
+    ### new models
+    model = saved_BNNs["model_1"]
+    dataset, init = list(model.values())[0], list(model.values())[1:]
+    train_loader, test_loader, inp_shape, out_size = \
+                            data_loaders(dataset_name=dataset, batch_size=64, 
+                                         n_inputs=args.inputs, shuffle=False)
+                        
+    bnn = BNN(dataset, *init, inp_shape, out_size)
+    bnn.load(device=args.device, rel_path=TESTS)
     filename = bnn.name
 
     # === load base NN ===
@@ -122,19 +161,21 @@ def main(args):
     # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS, device=args.device)
     
     # === compute loss gradients ===
-    n_samples_list = [1,10,50]#,100, 500
+    n_samples_list = [1,10,100]
 
     loss_gradients_list = []
     for posterior_samples in n_samples_list:
-        loss_gradients = load_loss_gradients(n_samples=posterior_samples, filename=filename, 
-                                             relpath=TESTS, savedir=filename+"/")
-        loss_gradients_list.append(loss_gradients)
+        loss_grads = loss_gradients(net=bnn, n_samples=posterior_samples, savedir=filename+"/", 
+                       data_loader=test_loader, device=args.device, filename=filename)
+        # loss_grads = load_loss_gradients(n_samples=posterior_samples, filename=filename, 
+        #                                      relpath=TESTS, savedir=filename+"/")
+        loss_gradients_list.append(loss_grads)
     
-    stripplot_gradients_components(loss_gradients_list=loss_gradients_list, n_samples_list=n_samples_list,
-                             dataset_name=args.dataset, filename=filename)
+    # stripplot_gradients_components(loss_gradients_list=loss_gradients_list, n_samples_list=n_samples_list,
+    #                          dataset_name=args.dataset, filename=filename)
 
-    # vanishing_gradients_heatmaps(loss_gradients_list=loss_gradients_list, 
-    #                              n_samples_list=n_samples_list, filename=filename)
+    vanishing_gradients_heatmaps(dataset=args.dataset, loss_gradients_list=loss_gradients_list, 
+                                 n_samples_list=n_samples_list, filename=filename)
 
 
 if __name__ == "__main__":
@@ -146,5 +187,5 @@ if __name__ == "__main__":
     parser.add_argument("--samples", default=30, type=int)
     parser.add_argument("--warmup", default=10, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help='cpu, cuda')   
+    parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())
