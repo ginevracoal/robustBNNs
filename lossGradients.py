@@ -7,7 +7,7 @@ import copy
 from utils import save_to_pickle, load_from_pickle, data_loaders
 import numpy as np
 import pyro
-from bnn import BNN, saved_bnns
+from bnn import BNN, saved_BNNs
 # from reducedBNN import NN, redBNN
 
 
@@ -21,24 +21,20 @@ def loss_gradient(net, image, label, n_samples=None):
 
     x_copy = copy.deepcopy(image)
     x_copy.requires_grad = True
-
     net_copy = copy.deepcopy(net)
 
     if n_samples: ## bayesian
-        output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
+        # output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
 
-        ## alternative version
-        # output = []
-        # for i in range(n_samples):
-        #     output.append(net_copy.forward(inputs=x_copy, n_samples=1))
-        # output = torch.stack(output,0).mean(0)
+        output_list = [net_copy.forward(inputs=x_copy, n_samples=1, seeds=[i]) for i in range(n_samples)]
+        output = torch.stack(output_list,0).mean(0)
 
     else: ## non bayesian
         output = net_copy.forward(inputs=x_copy) 
 
     loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
     net_copy.zero_grad()
-
+    
     loss.backward()
     loss_gradient = copy.deepcopy(x_copy.grad.data[0])
     return loss_gradient
@@ -84,7 +80,7 @@ def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
             gradient_norm = np.linalg.norm(image_gradients[0])  
         
         if gradient_norm != 0.0:
-            print("idx =",image_idx, end="\t")
+            print("image_idx =",image_idx, end="\t")
             count_samples_idx = 0
             for samples_idx, n_samples in enumerate(n_samples_list):
 
@@ -115,7 +111,7 @@ def main(args):
 
     # === load BNN ===
     hidden_size, activation, architecture, inference, \
-        epochs, lr, samples, warmup = saved_bnns[args.dataset]
+        epochs, lr, samples, warmup = saved_BNNs[args.dataset]
 
     bnn = BNN(args.dataset, hidden_size, activation, architecture, inference,
               epochs, lr, samples, warmup, inp_shape, out_size)
