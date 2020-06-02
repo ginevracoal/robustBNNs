@@ -27,12 +27,16 @@ DEBUG=False
 RETURN_LOGITS=False
 
 
-# saved_bnns = {"mnist":(512, "leaky", "conv", "svi", 5, 0.01, None, None), # 96%
-#               "fashion_mnist":(1024, "leaky", "conv", "svi", 10, 0.001, None, None)} # 77%
+saved_bnns = {"mnist":(512, "leaky", "conv", "svi", 5, 0.01, None, None), # 96%
+              "fashion_mnist":(1024, "leaky", "conv", "svi", 10, 0.001, None, None)} # 77%
 
 saved_BNNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
-                         "architecture":"conv", "inference":"svi", "epochs":10, "lr":0.01,
-                         "n_samples":None, "warmup":None}}
+                         "architecture":"conv", "inference":"svi", "epochs":5, #10
+                         "lr":0.01,
+                         "n_samples":None, "warmup":None},
+              "model_1":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
+                         "architecture":"fc2", "inference":"hmc", "epochs":None,
+                         "lr":None, "n_samples":100, "warmup":50}}
 
 
 class BNN(PyroModule):
@@ -157,7 +161,13 @@ class BNN(PyroModule):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=10, return_logits=True, avg_posterior=False):
+    def forward(self, inputs, n_samples=10, return_logits=True, avg_posterior=False, seeds=None):
+        
+        if seeds:
+            if len(seeds) != n_samples:
+                raise ValueError("Number of seeds should match number of samples.")
+        else:
+            seeds = list(range(n_samples))
 
         if self.inference == "svi":
 
@@ -176,24 +186,35 @@ class BNN(PyroModule):
 
             else:
                 preds = []  
-                for _ in range(n_samples):
+                for i in range(n_samples):
+                    pyro.set_rng_seed(seeds[i])
                     guide_trace = poutine.trace(self.guide).get_trace(inputs)   
                     preds.append(guide_trace.nodes['_RETURN']['value'])
 
-                if DEBUG:
-                    print("\nlearned variational params:\n")
-                    print(pyro.get_param_store().get_all_param_names())
-                    print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
-                    print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
-                    print(guide_trace.nodes['module$$$model.1.weight']["fn"].loc[0][:5])
+                    if DEBUG:
+                        print("\nlearned variational params:\n")
+                        print(pyro.get_param_store().get_all_param_names())
+                        print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
+                        print("\n", pyro.get_param_store()["model.0.weight_loc"][0][:5])
+                        print(guide_trace.nodes['module$$$model.0.weight']["fn"].loc[0][:5])
+                        print("posterior sample: ", 
+                          guide_trace.nodes['module$$$model.0.weight']['value'][5][0][0])
 
         elif self.inference == "hmc":
             preds = []
-            subset_posterior_predictive = list(self.posterior_predictive.values())[:n_samples]
-            for net in subset_posterior_predictive:
+            max_seed_value = np.max(seeds)
+            subset_posterior_predictive = list(self.posterior_predictive.values())[:max_seed_value]
+            # for net in subset_posterior_predictive:
+            posterior_predictive = list(self.posterior_predictive.values())
+            for seed in seeds:
+                net = posterior_predictive[seed]
                 preds.append(net.forward(inputs))
 
+                # print("seed=",seed,net.state_dict()['model.1.weight'][:3][0][:5])
+
         stacked_preds = torch.stack(preds, dim=0)
+        # print(stacked_preds[:,5,:])
+
         logits = nnf.softmax(stacked_preds.mean(0), dim=-1)
         labels = logits.argmax(-1)
 
@@ -206,10 +227,9 @@ class BNN(PyroModule):
         print("\n == HMC training ==")
         pyro.clear_param_store()
 
-        # batch_samples = n_samples
         num_batches = len(train_loader.dataset)/train_loader.batch_size
-        batch_samples = int(n_samples/num_batches)
-        # print("batch_samples =", batch_samples)
+        batch_samples = int(n_samples/num_batches)+1
+        print("\nn_batches=",num_batches,"\tbatch_samples =", batch_samples)
 
         kernel = HMC(self.model, step_size=step_size, num_steps=num_steps)
         mcmc = MCMC(kernel=kernel, num_samples=batch_samples, warmup_steps=warmup, num_chains=1)
@@ -265,13 +285,13 @@ class BNN(PyroModule):
                 y_batch = y_batch.to(device)
                 loss += svi.step(x_data=x_batch, y_data=y_batch.argmax(dim=-1))
 
-                outputs = self.forward(x_batch).to(device)
+                outputs = self.forward(x_batch, n_samples=10).to(device)
                 predictions = outputs.argmax(dim=-1)
                 labels = y_batch.argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()
             
             if DEBUG:
-                print("\n", pyro.get_param_store()["model.1.weight_loc"][0][:5])
+                print("\n", pyro.get_param_store()["model.0.weight_loc"][0][:5])
                 print("\n",predictions[:10],"\n", labels[:10])
 
             total_loss = loss / len(train_loader.dataset)
@@ -330,19 +350,21 @@ def main(args):
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 
-    # dataset, init = args.dataset, (args.hidden_size, args.activation, args.architecture, 
-    #                                  args.inference, args.epochs, args.lr, args.samples, args.warmup)
-    
-    model = saved_BNNs["model_0"]
-    dataset, init = list(model.values())[0], list(model.values())[1:]
+    dataset, init = args.dataset, (args.hidden_size, args.activation, args.architecture, 
+                                     args.inference, args.epochs, args.lr, args.samples, args.warmup)
+    batch_size = 1000 if args.inference == "hmc" else 128
+
+    # model = saved_BNNs["model_0"]
+    # dataset, init = list(model.values())[0], list(model.values())[1:]
+
     train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=dataset, batch_size=64, 
+                            data_loaders(dataset_name=dataset, batch_size=batch_size, 
                                          n_inputs=args.inputs, shuffle=True)
                         
     bnn = BNN(dataset, *init, inp_shape, out_size)
    
     bnn.train(train_loader=train_loader, device=args.device)
-    # bnn.load(device=args.device, rel_path=TESTS)
+    # bnn.load(device=args.device, rel_path=DATA)
 
     bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
 
