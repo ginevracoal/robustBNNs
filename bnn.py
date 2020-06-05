@@ -36,6 +36,9 @@ saved_BNNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"lea
                          "n_samples":None, "warmup":None},
               "model_1":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
                          "architecture":"fc2", "inference":"hmc", "epochs":None,
+                         "lr":None, "n_samples":100, "warmup":50},
+              "model_2":{"dataset":"fashion_mnist", "hidden_size":512, "activation":"leaky",
+                         "architecture":"fc2", "inference":"hmc", "epochs":None,
                          "lr":None, "n_samples":100, "warmup":50}}
 
 
@@ -227,7 +230,7 @@ class BNN(PyroModule):
         print("\n == HMC training ==")
         pyro.clear_param_store()
 
-        num_batches = len(train_loader.dataset)/train_loader.batch_size
+        num_batches = int(len(train_loader.dataset)/train_loader.batch_size)
         batch_samples = int(n_samples/num_batches)+1
         print("\nn_batches=",num_batches,"\tbatch_samples =", batch_samples)
 
@@ -350,12 +353,12 @@ def main(args):
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 
-    dataset, init = args.dataset, (args.hidden_size, args.activation, args.architecture, 
-                                     args.inference, args.epochs, args.lr, args.samples, args.warmup)
-    batch_size = 1000 if args.inference == "hmc" else 128
+    # dataset, init = args.dataset, (args.hidden_size, args.activation, args.architecture, 
+    #                                args.inference, args.epochs, args.lr, args.samples, args.warmup)
+    batch_size = 5000 if args.inference == "hmc" else 128
 
-    # model = saved_BNNs["model_0"]
-    # dataset, init = list(model.values())[0], list(model.values())[1:]
+    model = saved_BNNs["model_2"]
+    dataset, init = list(model.values())[0], list(model.values())[1:]
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=dataset, batch_size=batch_size, 
@@ -364,7 +367,7 @@ def main(args):
     bnn = BNN(dataset, *init, inp_shape, out_size)
    
     bnn.train(train_loader=train_loader, device=args.device)
-    # bnn.load(device=args.device, rel_path=DATA)
+    # bnn.load(device=args.device, rel_path="tests/2020-06-02/")
 
     bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
 
