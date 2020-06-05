@@ -686,10 +686,10 @@ def final_scatterplot_svi_hmc(dataset, hidden_size, test_points, device="cuda"):
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
 
-def final_scatterplot_hmc(dataset, hidden_size, test_points, device="cuda"):
-
+def final_scatterplot_hmc(dataset, hidden_size, test_points, orient="v", device="cuda"):
     dataset = dataset[dataset["inference"]=="hmc"]
     dataset = dataset[dataset["test_acc"]>ACC_THS]
+    dataset = dataset[dataset["hidden_size"].isin(hidden_size)]
     print("\n---scatterplot_gridSearch_samp_vs_hidden---\n", dataset)
 
     categorical_rows = dataset["hidden_size"]
@@ -697,9 +697,18 @@ def final_scatterplot_hmc(dataset, hidden_size, test_points, device="cuda"):
 
     sns.set_style("darkgrid")
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
-    matplotlib.rc('font', **{'size': 10})
-    fig, ax = plt.subplots(nrows=nrows, ncols=1, figsize=(4, 7), dpi=250, facecolor='w', edgecolor='k')
+    matplotlib.rc('font', **{'size': 10, 'weight' : 'bold'})
+
+    if orient == "v":
+        num_rows, num_cols = (nrows, 1) 
+        figsize = (4, 7)
+
+    else:
+        num_rows, num_cols = (1, nrows)
+        figsize = (10, 2.3)
     
+    fig, ax = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=figsize, dpi=300, 
+                           facecolor='w', edgecolor='k')
     vmin, vmax = (dataset["test_acc"].min(), dataset["test_acc"].max())
     norm = matplotlib.colors.Normalize(vmin=vmin,vmax=vmax)
         
@@ -716,9 +725,22 @@ def final_scatterplot_hmc(dataset, hidden_size, test_points, device="cuda"):
         ylim=1.1*np.max(np.abs(df["loss_gradients_y"]))
         ax[r].set_xlim(-xlim,+xlim)
         ax[r].set_ylim(-ylim,+ylim)
-        ax[r].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold'),rotation=270) 
-        ax[r].yaxis.set_label_position("right")
 
+        if orient == "v":
+            ax[r].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold'),rotation=270) 
+            ax[r].yaxis.set_label_position("right")
+        else:
+            ax[r].set_title(str(row_val), fontdict=dict(weight='bold',size=10)) 
+            ax[r].xaxis.set_label_position("bottom")
+            ax[r].set_xlabel(r"$\langle \frac{\partial L}{\partial x_1}(x,w)\rangle_{w}$", 
+                             labelpad=3, fontsize=11)
+
+    ax[0].set_ylabel(r"$\langle \frac{\partial L}{\partial x_2}(x,w)\rangle_{w}$",
+                     labelpad=3, fontsize=11)
+
+    if orient == "h":
+        legend = g.legend(loc='center right', bbox_to_anchor=(1.6, 0.5), ncol=1, title="")
+        legend.texts[0].set_text("training\ninputs")
     ## titles and labels
     # fig.text(0.02, 0.5, "Hidden size", va='center',fontsize=10, rotation='vertical',
     #     fontdict=dict(weight='bold'))
@@ -750,7 +772,7 @@ def main(args):
 
     # === hmc ===
     inference = ["hmc"]
-    n_samples = [50]#250]
+    n_samples = [250]
 
     # warmup = [100, 200, 500]
     # n_inputs = [5000, 10000, 15000]
@@ -784,9 +806,9 @@ def main(args):
 
     # === plots ===
     # dataset = build_components_dataset(*init, device=args.device, test_points=test_points, rel_path=TESTS)
-    dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
-    scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device=args.device, 
-         test_points=test_points, posterior_samples=posterior_samples, hidden_size=hidden_size)
+    # dataset = pandas.read_csv(DATA+"halfMoons_lossGrads_gridSearch_"+str(test_points)+".csv")
+    # scatterplot_gridSearch_samp_vs_hidden(dataset=dataset, device=args.device, 
+    #      test_points=test_points, posterior_samples=posterior_samples, hidden_size=hidden_size)
 
     # === concat datasets ===
     # warmup = [100, 200, 500]
@@ -814,14 +836,13 @@ def main(args):
     # stripplot_rob_acc(dataset, test_points, attack, device=args.device)
 
     # # === final SVI + HMC plot === 
-    # test_points = 100
-    # # dataset = build_final_dataset(device=args.device, test_points=test_points)
-    # dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_final_"+str(test_points)+".csv")
-    # # final_scatterplot_svi_hmc(dataset, device=args.device, test_points=test_points, 
-    # #                                  hidden_size=[32,128,256])
-
-    # final_scatterplot_hmc(dataset, device=args.device, test_points=test_points, 
-    #                                  hidden_size=[32,128,256,512])
+    test_points = 100
+    # dataset = build_final_dataset(device=args.device, test_points=test_points)
+    dataset = pandas.read_csv(DATA+"halfMoons_lossGrads_final_"+str(test_points)+".csv")
+    # final_scatterplot_svi_hmc(dataset, device=args.device, test_points=test_points, 
+    #                                  hidden_size=[32,128,256])
+    final_scatterplot_hmc(dataset, device=args.device, test_points=test_points, 
+                                     hidden_size=[32,128,256,512], orient="h")
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
