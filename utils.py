@@ -1,18 +1,14 @@
 import numpy as np
-import keras
-from keras import backend as K
-from keras.datasets import mnist, fashion_mnist
 import pickle as pkl
 import time
 import os
 import matplotlib.pyplot as plt
-import seaborn as sns
-import math
-import tensorflow as tf
+import random
 import torch
 from pandas import DataFrame
 from torch.utils.data import DataLoader
-import random
+import keras
+from keras.datasets import mnist, fashion_mnist
 from sklearn.datasets import make_moons
 
 
