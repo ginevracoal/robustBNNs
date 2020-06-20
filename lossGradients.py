@@ -1,5 +1,9 @@
+"""
+Compute expected loss gradients 
+"""
+
 import sys
-from directories import *
+from savedir import *
 import argparse
 from tqdm import tqdm
 import torch
@@ -7,8 +11,7 @@ import copy
 from utils import save_to_pickle, load_from_pickle, data_loaders
 import numpy as np
 import pyro
-from bnn import BNN, saved_BNNs
-# from reducedBNN import NN, redBNN
+from model_bnn import BNN, saved_BNNs
 
 
 DEBUG=False
@@ -19,25 +22,58 @@ def loss_gradient(net, image, label, n_samples=None):
     image = image.unsqueeze(0)
     label = label.argmax(-1).unsqueeze(0)
 
-    x_copy = copy.deepcopy(image)
-    x_copy.requires_grad = True
-    net_copy = copy.deepcopy(net)
-
     if n_samples: ## bayesian
-        # output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
 
-        output_list = [net_copy.forward(inputs=x_copy, n_samples=1, seeds=[i]) for i in range(n_samples)]
-        output = torch.stack(output_list,0).mean(0)
+        loss_gradients = []
+
+        for i in range(n_samples):
+            x_copy = copy.deepcopy(image)
+            x_copy.requires_grad = True
+
+            output = net.forward(inputs=x_copy, return_prob=True, n_samples=1, seeds=[i])
+            loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
+            net.zero_grad()
+            loss.backward()
+            loss_gradient = copy.deepcopy(x_copy.grad.data[0])
+            loss_gradients.append(loss_gradient)
+
+        loss_gradient = torch.stack(loss_gradients,0).mean(0)
 
     else: ## non bayesian
         output = net_copy.forward(inputs=x_copy) 
 
-    loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
-    net_copy.zero_grad()
-    
-    loss.backward()
-    loss_gradient = copy.deepcopy(x_copy.grad.data[0])
+        loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
+        net.zero_grad()
+        loss.backward()
+        loss_gradient = copy.deepcopy(x_copy.grad.data[0])
+
     return loss_gradient
+
+# def old_loss_gradient(net, image, label, n_samples=None):
+
+#     image = image.unsqueeze(0)
+#     label = label.argmax(-1).unsqueeze(0)
+
+#     x_copy = copy.deepcopy(image)
+#     x_copy.requires_grad = True
+#     net_copy = copy.deepcopy(net)
+
+#     if n_samples: ## bayesian
+#         # output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
+
+#         output_list = [net_copy.forward(inputs=x_copy, return_logits=True, 
+#                        n_samples=1, seeds=[i]) for i in range(n_samples)]
+#         output = torch.stack(output_list,0).mean(0)
+
+#     else: ## non bayesian
+#         output = net_copy.forward(inputs=x_copy) 
+
+#     loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
+#     net_copy.zero_grad()
+    
+#     loss.backward()
+#     loss_gradient = copy.deepcopy(x_copy.grad.data[0])
+#     return loss_gradient
 
 def loss_gradients(net, data_loader, device, filename, savedir, n_samples=None):
     print(f"\n === Loss gradients on {len(data_loader.dataset)} input images:")
@@ -70,7 +106,7 @@ def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
 
     vanishing_gradients_idxs = []
 
-    print("\nvanishing gradients norms:")
+    print("\nvanishing gradients norms:\n")
     count_van_images = 0
     for image_idx, image_gradients in enumerate(loss_gradients):
 
@@ -105,49 +141,30 @@ def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
 
 def main(args):
 
+    posterior_samples_list=[1,10,100]
+
+    # === load BNN and data ===
+
+    model = saved_BNNs["model_0"]
+    dataset, init = list(model.values())[0], list(model.values())[1:]
+
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs, 
-                     shuffle=False)
+        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.inputs, shuffle=False)
 
-    # === load BNN ===
-    hidden_size, activation, architecture, inference, \
-        epochs, lr, samples, warmup = saved_BNNs[args.dataset]
-
-    bnn = BNN(args.dataset, hidden_size, activation, architecture, inference,
-              epochs, lr, samples, warmup, inp_shape, out_size)
+    bnn = BNN(dataset, *init, inp_shape, out_size)
     bnn.load(device=args.device, rel_path=DATA)
     filename = bnn.name
-
-    # === load base NN ===
-    # dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)    
-    # nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
-    # nn.load(epochs=epochs, lr=lr, rel_path=rel_path, device=args.device)
-
-    # # === load redBNN ===
-    # bnn = redBNN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
-    #              inference=args.inference, base_net=nn)
-    # hyperparams = bnn.get_hyperparams(args)
-    # filename = bnn.get_filename(n_inputs=args.inputs, hyperparams=hyperparams)
-    # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS, device=args.device)
     
     # === compute loss gradients ===
 
-    for posterior_samples in [1,10,50]:#,100,500]:
+    for posterior_samples in posterior_samples_list:
         loss_gradients(net=bnn, n_samples=posterior_samples, savedir=filename+"/", 
                        data_loader=test_loader, device=args.device, filename=filename)
 
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
-    parser = argparse.ArgumentParser(description="expected loss gradients")
-
-    parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--inference", default="svi", type=str)
-    parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--samples", default=30, type=int)
-    parser.add_argument("--warmup", default=10, type=int)
-    parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--device", default='cpu', type=str, help='cpu, cuda')   
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--inputs", default=1000, type=int)
+    parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())
