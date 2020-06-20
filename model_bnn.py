@@ -27,8 +27,8 @@ from collections import OrderedDict
 from model_nn import NN
 softplus = torch.nn.Softplus()
 
+
 DEBUG=False
-RETURN_LOGITS=False
 
 
 saved_BNNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
@@ -159,8 +159,6 @@ class BNN(PyroModule):
                 net_copy.load_state_dict(torch.load(path+filename+"_"+str(model_idx)+".pt"))
                 self.posterior_predictive.update({model_idx:net_copy})      
 
-                # print(self.posterior_predictive[model_idx].state_dict()["model.5.bias"])
-
             if len(self.posterior_predictive)!=self.n_samples:
                 raise AttributeError("wrong number of posterior models")
 
@@ -181,7 +179,7 @@ class BNN(PyroModule):
 
                 guide_trace = poutine.trace(self.guide).get_trace(inputs)   
 
-                # carico i pesi della loc posterior nella rete di base self.net e valuto su quella
+                # load posterior loc in self.net model and evaluate
                 avg_state_dict = {}
                 for key in self.net.state_dict().keys():
                     avg_weights = guide_trace.nodes[str(key)+"_loc"]['value']
@@ -207,27 +205,21 @@ class BNN(PyroModule):
                           guide_trace.nodes['module$$$model.0.weight']['value'][5][0][0])
 
         elif self.inference == "hmc":
+
             preds = []
-            max_seed_value = np.max(seeds)
-            subset_posterior_predictive = list(self.posterior_predictive.values())[:max_seed_value]
-            # for net in subset_posterior_predictive:
             posterior_predictive = list(self.posterior_predictive.values())
             for seed in seeds:
                 net = posterior_predictive[seed]
                 preds.append(net.forward(inputs))
 
-                # print("seed=",seed,net.state_dict()['model.1.weight'][:3][0][:5])
-
         stacked_preds = torch.stack(preds, dim=0)
-        # print(stacked_preds[:,5,:])
+        output_prob = nnf.softmax(stacked_preds.mean(0), dim=-1)
 
-        logits = nnf.softmax(stacked_preds.mean(0), dim=-1)
-        labels = logits.argmax(-1)
-
-        one_hot_preds = torch.zeros_like(logits)
+        labels = output_prob.argmax(-1)
+        one_hot_preds = torch.zeros_like(output_prob)
         one_hot_preds[range(one_hot_preds.shape[0]), labels]=1
 
-        return logits if return_prob==True else one_hot_preds
+        return output_prob if return_prob==True else one_hot_preds
 
     def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device):
         print("\n == HMC training ==")
@@ -352,16 +344,14 @@ class BNN(PyroModule):
 
 def main(args):
 
+    rel_path=DATA if args.savedir=="DATA" else TESTS
+
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-
-    # dataset, init = args.dataset, (args.hidden_size, args.activation, args.architecture, 
-    #                                args.inference, args.epochs, args.lr, args.samples, args.warmup)
-    batch_size = 5000 if args.inference == "hmc" else 128
-
-    model = saved_BNNs["model_0"]
+    model = saved_BNNs["model_"+str(args.model_idx)]
     dataset, init = list(model.values())[0], list(model.values())[1:]
+    batch_size = 5000 if model["inference"] == "hmc" else 128
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=dataset, batch_size=batch_size, 
@@ -369,30 +359,22 @@ def main(args):
                         
     bnn = BNN(dataset, *init, inp_shape, out_size)
    
-    bnn.train(train_loader=train_loader, device=args.device)
-    # bnn.load(device=args.device, rel_path="tests/2020-06-02/")
+    if args.train:
+        bnn.train(train_loader=train_loader, device=args.device)
+    else:
+        bnn.load(device=args.device, rel_path=rel_path)
 
-    bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
+    if args.test:
+        bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
 
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
-    parser.add_argument("--inputs", default=10, type=int)
-    parser.add_argument("--model_idx", default=0, type=int)
-
-
-    parser.add_argument("--dataset", default="half_moons", type=str, 
-                        help="mnist, fashion_mnist, cifar, half_moons")
-    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2 >= 16")
-    parser.add_argument("--activation", default="leaky", type=str, 
-                        help="relu, leaky, sigm, tanh")
-    parser.add_argument("--architecture", default="fc2", type=str, help="conv, fc, fc2")
-    parser.add_argument("--inference", default="svi", type=str, help="svi, hmc")
-    parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--samples", default=10, type=int)
-    parser.add_argument("--warmup", default=5, type=int)
-    parser.add_argument("--lr", default=0.001, type=float)
+    parser.add_argument("--inputs", default=60000, type=int, help="number of input points")
+    parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
+    parser.add_argument("--train", default=True, type=eval)
+    parser.add_argument("--test", default=True, type=eval)
+    parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
-   
     main(args=parser.parse_args())

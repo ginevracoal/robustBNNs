@@ -1,6 +1,10 @@
+"""
+Deterministic Neural Network model
+"""
+
 import argparse
 import os
-from directories import *
+from savedir import *
 from utils import *
 import torch
 from torch import nn
@@ -23,15 +27,13 @@ class NN(nn.Module):
         self.dataset_name = dataset_name
         self.criterion = nn.CrossEntropyLoss()
         self.architecture = architecture
-        self.hidden_size = hidden_size
+        self.hidden_size = hidden_size # power of 2 >= 16
         self.output_size = output_size
         self.activation = activation
 
         self.name = self.get_name(dataset_name, hidden_size, activation, architecture)
         self.set_model(architecture, activation, input_shape, output_size, hidden_size)
-        # print("\nBase net:\n", self)
         # print("\nTotal number of weights =", sum(p.numel() for p in self.parameters()))
-        # [print(p.shape) for p in self.parameters()]
 
     def get_name(self, dataset_name, hidden_size, activation, architecture):
         return str(dataset_name)+"_nn_hid="+str(hidden_size)+"_act="+str(activation)+\
@@ -135,7 +137,7 @@ class NN(nn.Module):
                 total += y_batch.size(0)
 
                 optimizer.zero_grad()
-                outputs = self.forward(x_batch)#, train=True)
+                outputs = self.forward(x_batch)
                 loss = self.criterion(outputs, y_batch)
                 loss.backward()
                 optimizer.step()
@@ -144,8 +146,6 @@ class NN(nn.Module):
                 total_loss += loss.data.item() / len(train_loader.dataset)
                 correct_predictions += (predictions == y_batch).sum()
                 accuracy = 100 * correct_predictions / len(train_loader.dataset)
-
-            # print(self.model.weight.data) # fixed for redBNNs
 
             print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
                   end="\t")
@@ -175,29 +175,31 @@ class NN(nn.Module):
 
 def main(args):
 
-    train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=args.dataset, batch_size=64, 
-                                         n_inputs=args.inputs, shuffle=True)
-
-    # dataset, hid, activ, arch, ep, lr = (args.dataset, args.hidden_size, args.activation, args.epochs, args.lr)       
     dataset, hid, activ, arch, ep, lr = saved_NNs["model_0"].values()
 
-    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, hidden_size=hid, activation=activ, architecture=arch)
-    nn.train(train_loader=train_loader, epochs=ep, lr=lr, device=args.device)
-    # nn.load(epochs=ep, lr=lr, device=args.device, rel_path=DATA)
-    nn.evaluate(test_loader=test_loader, device=args.device)
+    train_loader, test_loader, inp_shape, out_size = \
+                            data_loaders(dataset_name=dataset, batch_size=64, 
+                                         n_inputs=args.inputs, shuffle=True)
+
+
+    nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
+            hidden_size=hid, activation=activ, architecture=arch)
+
+    if args.train:
+        nn.train(train_loader=train_loader, epochs=ep, lr=lr, device=args.device)
+    else:
+        nn.load(epochs=ep, lr=lr, device=args.device, rel_path=DATA)
+    
+    if args.test:
+        nn.evaluate(test_loader=test_loader, device=args.device)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Base NN")
-
-    parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--hidden_size", default=32, type=int, help="power of 2")
-    parser.add_argument("--activation", default="leaky", type=str, help="relu, leaky, sigm, tanh")
-    parser.add_argument("--architecture", default="fc", type=str, help="conv, fc, fc2")
-    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--lr", default=0.001, type=float)
-    parser.add_argument("--epochs", default=10, type=int)
+    parser.add_argument("--inputs", default=60000, type=int, help="number of input points")
+    parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
+    parser.add_argument("--train", default=True, type=eval)
+    parser.add_argument("--test", default=True, type=eval)
+    parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
-
     main(args=parser.parse_args())
