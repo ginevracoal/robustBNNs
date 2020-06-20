@@ -1,6 +1,10 @@
+"""
+Bayesian Neural Network model
+"""
+
 import argparse
 import os
-from directories import *
+from savedir import *
 from utils import *
 import pyro
 import torch
@@ -14,30 +18,29 @@ import pyro.optim as pyroopt
 import torch.nn.functional as F
 from pyro.infer.mcmc import MCMC, HMC, NUTS
 from pyro.distributions import OneHotCategorical, Normal, Categorical, Uniform
-from nn import NN
 from utils import plot_loss_accuracy
 import torch.distributions.constraints as constraints
-softplus = torch.nn.Softplus()
 from pyro.nn import PyroModule
 import pandas as pd 
 import copy
 from collections import OrderedDict
+from model_nn import NN
+softplus = torch.nn.Softplus()
 
 DEBUG=False
 RETURN_LOGITS=False
 
 
-saved_bnns = {"mnist":(512, "leaky", "conv", "svi", 5, 0.01, None, None), # 96%
-              "fashion_mnist":(1024, "leaky", "conv", "svi", 10, 0.001, None, None)} # 77%
-
 saved_BNNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
-                         "architecture":"conv", "inference":"svi", "epochs":5, #10
-                         "lr":0.01,
-                         "n_samples":None, "warmup":None},
+                         "architecture":"conv", "inference":"svi", "epochs":5, 
+                         "lr":0.01, "n_samples":None, "warmup":None},
               "model_1":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
                          "architecture":"fc2", "inference":"hmc", "epochs":None,
                          "lr":None, "n_samples":100, "warmup":50},
-              "model_2":{"dataset":"fashion_mnist", "hidden_size":512, "activation":"leaky",
+              "model_2":{"dataset":"fashion_mnist", "hidden_size":1024, "activation":"leaky",
+                         "architecture":"conv", "inference":"svi", "epochs":10,
+                         "lr":0.001, "n_samples":None, "warmup":None},
+              "model_3":{"dataset":"fashion_mnist", "hidden_size":1024, "activation":"leaky",
                          "architecture":"fc2", "inference":"hmc", "epochs":None,
                          "lr":None, "n_samples":100, "warmup":50}}
 
@@ -164,7 +167,7 @@ class BNN(PyroModule):
         self.to(device)
         self.net.to(device)
 
-    def forward(self, inputs, n_samples=10, return_logits=True, avg_posterior=False, seeds=None):
+    def forward(self, inputs, n_samples=10, return_prob=True, avg_posterior=False, seeds=None):
         
         if seeds:
             if len(seeds) != n_samples:
@@ -224,7 +227,7 @@ class BNN(PyroModule):
         one_hot_preds = torch.zeros_like(logits)
         one_hot_preds[range(one_hot_preds.shape[0]), labels]=1
 
-        return logits if return_logits==True else one_hot_preds
+        return logits if return_prob==True else one_hot_preds
 
     def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device):
         print("\n == HMC training ==")
@@ -357,7 +360,7 @@ def main(args):
     #                                args.inference, args.epochs, args.lr, args.samples, args.warmup)
     batch_size = 5000 if args.inference == "hmc" else 128
 
-    model = saved_BNNs["model_2"]
+    model = saved_BNNs["model_0"]
     dataset, init = list(model.values())[0], list(model.values())[1:]
 
     train_loader, test_loader, inp_shape, out_size = \
@@ -374,9 +377,11 @@ def main(args):
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
-    parser = argparse.ArgumentParser(description="BNN")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--inputs", default=10, type=int)
+    parser.add_argument("--model_idx", default=0, type=int)
 
-    parser.add_argument("--inputs", default=100, type=int)
+
     parser.add_argument("--dataset", default="half_moons", type=str, 
                         help="mnist, fashion_mnist, cifar, half_moons")
     parser.add_argument("--hidden_size", default=32, type=int, help="power of 2 >= 16")

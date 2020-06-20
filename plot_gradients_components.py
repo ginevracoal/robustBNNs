@@ -1,14 +1,16 @@
-import sys
-sys.path.append(".")
-from directories import *
+"""
+Plot gradients components
+"""
+
+from savedir import *
 from lossGradients import *
+from model_bnn import saved_BNNs
+from utils import load_dataset
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import os
-from bnn import saved_bnns
-from utils import load_dataset
 
 
 def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_name, filename):
@@ -16,7 +18,6 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
     matplotlib.rc('font', **{'weight': 'bold', 'size': 12})
     fig, ax = plt.subplots(1, 1, figsize=(10, 5), dpi=150, facecolor='w', edgecolor='k')    
     sns.set_style("darkgrid")
-    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
 
     loss_gradients_components = []
     plot_samples = []
@@ -35,13 +36,10 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
     print(df.head())
 
     sns.stripplot(x="n_samples", y="loss_gradients", data=df, linewidth=-0.1, ax=ax, 
-                  jitter=0.2, alpha=0.4, cmap=cmap)
+                  jitter=0.2, alpha=0.4, palette="gist_heat")
 
     ax.set_ylabel("")
     ax.set_xlabel("")
-
-    # ax.set_yscale('log')
-    # ax.set_title("", fontsize=10)
 
     fig.text(0.5, 0.01, "Samples involved in the expectations ($w \sim p(w|D)$)", ha='center')
     fig.text(0.03, 0.5, r"Expected Gradients components $\langle\nabla L(x,w)\rangle_{w}$", 
@@ -51,16 +49,14 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path + filename + "_gradComponents.png")
 
-def vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
+def _vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
 
     fig, axs = plt.subplots(nrows=1, ncols=len(n_samples_list)+1, figsize=(12, 3))
 
     matplotlib.rc('font', **{'size': 12, 'weight':'bold'})
     bottom, width, height = (.17, .01, .66)
 
-    # cbar_ax = fig.add_axes([.2, bottom, width, height])
-    cmap = sns.cubehelix_palette(50, hue=0.00, rot=0, light=0, dark=1, as_cmap=True)
-    sns.heatmap(image, ax=axs[0], square=True, cmap=cmap, vmin=0, vmax=1, cbar=False)#, cbar_kws={'shrink': shrink})
+    sns.heatmap(image, ax=axs[0], square=True, cmap="Greys_r", cbar=False)
     
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
     vmin, vmax = (np.min(gradients), np.max(gradients))
@@ -69,7 +65,7 @@ def vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
         
         cbar_ax = fig.add_axes([.93, bottom, width, height])
         sns.heatmap(loss_gradient, ax=axs[col_idx+1], square=True, cmap=cmap,
-                    vmin=vmin, vmax=vmax, cbar_ax=cbar_ax, #cbar_kws={'shrink': shrink}, 
+                    vmin=vmin, vmax=vmax, cbar_ax=cbar_ax,
                     cbar=True if col_idx+1==len(n_samples_list) else False)
 
         if norm == "linfty":
@@ -94,7 +90,8 @@ def vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
     fig.tight_layout(h_pad=2, w_pad=2, rect=[0,0,0.93,1])
     return fig
 
-def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, filename, norm="linfty"):
+def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, filename, 
+                                 norm="linfty"):
 
     transposed_gradients = np.transpose(np.array(loss_gradients_list), axes=(1, 0, 2, 3))
     if transposed_gradients.shape[1] != len(n_samples_list):
@@ -109,7 +106,7 @@ def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, f
         
         original_im = test_images[im_idx].squeeze()
         im_gradients = transposed_gradients[im_idx]
-        fig = vanishing_gradient_heatmap(original_im, im_gradients, 
+        fig = _vanishing_gradient_heatmap(original_im, im_gradients, 
                                          n_samples_list=n_samples_list, norm=norm)
 
         path=TESTS+filename+"/vanishing_gradients_heatmaps/"
@@ -118,79 +115,64 @@ def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, f
         plt.close()
 
 
+def _get_gradients(args, bnn, test_loader, n_samples_list):
+
+    filename=bnn.name
+
+    loss_gradients_list = []
+    for posterior_samples in n_samples_list:
+
+        if args.compute_grads is True:
+            loss_grads = loss_gradients(net=bnn, n_samples=posterior_samples, savedir=filename+"/", 
+                           data_loader=test_loader, device=args.device, filename=filename)
+        else:
+            loss_grads = load_loss_gradients(n_samples=posterior_samples, filename=filename, 
+                                             relpath=TESTS, savedir=filename+"/")
+        loss_gradients_list.append(loss_grads)
+    
+    return loss_gradients_list
+
+
 def main(args):
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-    _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name=args.dataset, batch_size=128, n_inputs=args.inputs,
-                     shuffle=False)
+    # === load BNN and data ===
 
-    # === load BNN ===
-
-    ### old models
-    # hidden_size, activation, architecture, inference, \
-    #         epochs, lr, samples, warmup = saved_bnns[args.dataset]
-
-    # bnn = BNN(args.dataset, hidden_size, activation, architecture, inference,
-    #           epochs, lr, samples, warmup, inp_shape, out_size)
-
-    # bnn.load(device=args.device, rel_path=DATA)
-    # filename = bnn.name
-
-    ### new models
-    model = saved_BNNs["model_1"]
+    model = saved_BNNs["model_"+str(args.model_idx)]
     dataset, init = list(model.values())[0], list(model.values())[1:]
-    train_loader, test_loader, inp_shape, out_size = \
-                            data_loaders(dataset_name=dataset, batch_size=64, 
-                                         n_inputs=args.inputs, shuffle=False)
-                        
-    TESTS = "tests/2020-06-02/"
+
+    _, test_loader, inp_shape, out_size = \
+        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.inputs, shuffle=False)
+
     bnn = BNN(dataset, *init, inp_shape, out_size)
-    bnn.load(device=args.device, rel_path=TESTS)
-    filename = bnn.name
+    bnn.load(device=args.device, rel_path=DATA)
 
-    # === load base NN ===
-    # dataset, epochs, lr, rel_path = ("mnist", 20, 0.001, TRAINED_MODELS)    
-    # nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size)
-    # nn.load(epochs=epochs, lr=lr, rel_path=rel_path, device=args.device)
+    # === plot loss gradients ===
 
-    # # === load reduced BNN ===
-    # bnn = redBNN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
-    #              inference=args.inference, base_net=nn)
-    # hyperparams = bnn.get_hyperparams(args)
-    # filename = bnn.get_filename(n_inputs=args.inputs, hyperparams=hyperparams)
-    # bnn.load(n_inputs=args.inputs, hyperparams=hyperparams, rel_path=TESTS, device=args.device)
-    
-    # === compute loss gradients ===
-    # n_samples_list = [1,10,50,100,500] # stripplot
-    n_samples_list = [1,10,100] # heatmaps
+    if args.stripplot is True:
 
-    loss_gradients_list = []
-    for posterior_samples in n_samples_list:
-        # loss_grads = loss_gradients(net=bnn, n_samples=posterior_samples, savedir=filename+"/", 
-        #                data_loader=test_loader, device=args.device, filename=filename)
-        loss_grads = load_loss_gradients(n_samples=posterior_samples, filename=filename, 
-                                             relpath=TESTS, savedir=filename+"/")
-        loss_gradients_list.append(loss_grads)
-    
+        n_samples_list = [1,10,50,100,500] 
+        loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
+        stripplot_gradients_components(loss_gradients_list=loss_gradients_list, 
+            n_samples_list=n_samples_list, dataset_name=dataset, filename=bnn.name)
 
-    # stripplot_gradients_components(loss_gradients_list=loss_gradients_list, n_samples_list=n_samples_list,
-    #                          dataset_name=args.dataset, filename=filename)
-
-    vanishing_gradients_heatmaps(dataset=args.dataset, loss_gradients_list=loss_gradients_list, 
-                                 n_samples_list=n_samples_list, filename=filename)
+    if args.heatmaps is True:
+        
+        n_samples_list = [1,10,100] 
+        loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
+        vanishing_gradients_heatmaps(dataset=dataset, loss_gradients_list=loss_gradients_list, 
+                                     n_samples_list=n_samples_list, filename=bnn.name)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Plot gradients components")
-    parser.add_argument("--inputs", default=100, type=int)
-    parser.add_argument("--dataset", default="mnist", type=str, help="mnist, fashion_mnist, cifar")
-    parser.add_argument("--inference", default="svi", type=str)
-    parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--samples", default=30, type=int)
-    parser.add_argument("--warmup", default=10, type=int)
-    parser.add_argument("--lr", default=0.001, type=float)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--inputs", default=1000, type=int, help="input points")
+    parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
+    parser.add_argument("--compute_grads", default="False", type=eval, 
+                        help="If True compute else load")
+    parser.add_argument("--stripplot", default="True", type=eval)
+    parser.add_argument("--heatmaps", default="True", type=eval)
     parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())

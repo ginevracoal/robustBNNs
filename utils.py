@@ -10,7 +10,6 @@ import seaborn as sns
 import math
 import tensorflow as tf
 import torch
-from directories import *
 from pandas import DataFrame
 from torch.utils.data import DataLoader
 import random
@@ -72,7 +71,6 @@ def load_half_moons(channels="first", n_samples=30000):
     x, y = (x.astype('float32'), y.astype('float32'))
     x = (x-np.min(x))/(np.max(x)-np.min(x))
 
-    # train-test split
     split_size = int(0.8 * len(x))
     x_train, y_train = x[:split_size], y[:split_size]
     x_test, y_test = x[split_size:], y[split_size:]
@@ -89,7 +87,6 @@ def load_half_moons(channels="first", n_samples=30000):
         x_test = x_test.reshape(x_test.shape[0], 1, n_coords, n_channels)
     input_shape = x_train.shape[1:]
     
-
     # binary one hot encoding
     num_classes = 2
     y_train = keras.utils.to_categorical(y_train, num_classes)
