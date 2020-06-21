@@ -1,4 +1,4 @@
-# Robustness of Bayesian Neural Networks to Gradient-Based Attacks
+## Robustness of Bayesian Neural Networks to Gradient-Based Attacks
 
 Pyro implementation for paper "Robustness of Byesian Neural Networks to Gradient-Based Attacks", Ginevra Carbone, Matthew Wicker, Luca Laurenti, Andrea Patane, Luca Bortolussi, Guido Sanguinetti, 2020.
 
