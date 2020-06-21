@@ -144,7 +144,7 @@ def main(args):
     batch_size = 5000 if model["inference"] == "hmc" else 128
 
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.inputs, shuffle=False)
+        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
 
     bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
     bnn.load(device=args.device, rel_path=DATA)
@@ -168,7 +168,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--inputs", default=1000, type=int, help="input points")
+    parser.add_argument("--n_inputs", default=1000, type=int, help="input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
     parser.add_argument("--compute_grads", default="False", type=eval, 
                         help="If True compute else load")

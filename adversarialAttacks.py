@@ -70,11 +70,7 @@ def fgsm_attack(net, image, label, hyperparams=None, n_samples=None, avg_posteri
     epsilon = hyperparams["epsilon"] if hyperparams else 0.3
 
     image.requires_grad = True
-
-    if n_samples is not None or avg_posterior:
-        output = net.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
-    else:
-        output = net.forward(inputs=image)
+    output = net.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
 
     loss = torch.nn.CrossEntropyLoss()(output, label)
     net.zero_grad()
@@ -98,11 +94,7 @@ def pgd_attack(net, image, label, hyperparams=None, n_samples=None, avg_posterio
     
     for i in range(iters):
         image.requires_grad = True  
-
-        if n_samples or avg_posterior:
-            output = net.forward(image, n_samples, avg_posterior)
-        else:
-            output = net.forward(image)
+        output = net.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
 
         loss = torch.nn.CrossEntropyLoss()(output, label)
         net.zero_grad()
@@ -207,6 +199,8 @@ def attack_evaluation(net, x_test, x_attack, y_test, device, n_samples=None):
 
 def main(args):
 
+    bayesian_attack_samples=[1,10,50]
+
     rel_path=DATA if args.savedir=="DATA" else TESTS
     train_inputs = 100 if DEBUG else None
 
@@ -272,12 +266,12 @@ def main(args):
         x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
                           torch.from_numpy(y_test[:args.n_inputs]))
 
-        for attack_samples in [1,10,50]:
+        for attack_samples in bayesian_attack_samples:
             x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
                               device=args.device, method=args.attack_method, filename=bnn.name, 
                               n_samples=attack_samples)
 
-            for defence_samples in [attack_samples, 100]:
+            for defence_samples in [attack_samples]:
                 attack_evaluation(net=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
                                   device=args.device, n_samples=defence_samples)
 
