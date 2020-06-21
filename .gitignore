@@ -3,3 +3,4 @@ venv/
 tests/
 __pycache__/
 screenlog.0
+additional/

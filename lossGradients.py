@@ -49,32 +49,6 @@ def loss_gradient(net, image, label, n_samples=None):
 
     return loss_gradient
 
-# def old_loss_gradient(net, image, label, n_samples=None):
-
-#     image = image.unsqueeze(0)
-#     label = label.argmax(-1).unsqueeze(0)
-
-#     x_copy = copy.deepcopy(image)
-#     x_copy.requires_grad = True
-#     net_copy = copy.deepcopy(net)
-
-#     if n_samples: ## bayesian
-#         # output = net_copy.forward(inputs=x_copy, n_samples=n_samples) 
-
-#         output_list = [net_copy.forward(inputs=x_copy, return_logits=True, 
-#                        n_samples=1, seeds=[i]) for i in range(n_samples)]
-#         output = torch.stack(output_list,0).mean(0)
-
-#     else: ## non bayesian
-#         output = net_copy.forward(inputs=x_copy) 
-
-#     loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
-#     net_copy.zero_grad()
-    
-#     loss.backward()
-#     loss_gradient = copy.deepcopy(x_copy.grad.data[0])
-#     return loss_gradient
-
 def loss_gradients(net, data_loader, device, filename, savedir, n_samples=None):
     print(f"\n === Loss gradients on {len(data_loader.dataset)} input images:")
 
@@ -145,7 +119,7 @@ def main(args):
 
     # === load BNN and data ===
 
-    model = saved_BNNs["model_0"]
+    model = saved_BNNs["model_"+str(args.model_idx)]
     dataset, init = list(model.values())[0], list(model.values())[1:]
 
     _, test_loader, inp_shape, out_size = \
@@ -166,5 +140,6 @@ if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
     parser.add_argument("--inputs", default=1000, type=int)
+    parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
     parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())

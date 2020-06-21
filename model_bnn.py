@@ -59,12 +59,12 @@ class BNN(PyroModule):
         self.warmup = warmup
         self.step_size = 0.001
         self.num_steps = 30
-        self.net = NN(dataset_name=dataset_name, input_shape=input_shape, 
-                      output_size=output_size, hidden_size=hidden_size, 
-                      activation=activation, architecture=architecture)
-        self.name = self.get_name(epochs, lr, n_samples, warmup)
+        self.net = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size, 
+                        hidden_size=hidden_size, activation=activation, architecture=architecture, 
+                        epochs=epochs, lr=lr)
+        self.name = self.get_name()
 
-    def get_name(self, epochs, lr, n_samples, warmup, n_inputs=None):
+    def get_name(self, n_inputs=None):
         
         name = str(self.dataset_name)+"_bnn_"+str(self.inference)+"_hid="+\
                str(self.net.hidden_size)+"_act="+str(self.net.activation)+\
@@ -74,9 +74,9 @@ class BNN(PyroModule):
             name = name+"_inp="+str(n_inputs)
 
         if self.inference == "svi":
-            return name+"_ep="+str(epochs)+"_lr="+str(lr)
+            return name+"_ep="+str(self.epochs)+"_lr="+str(self.lr)
         elif self.inference == "hmc":
-            return name+"_samp="+str(n_samples)+"_warm="+str(warmup)+\
+            return name+"_samp="+str(self.n_samples)+"_warm="+str(self.warmup)+\
                    "_stepsize="+str(self.step_size)+"_numsteps="+str(self.num_steps)
 
     def model(self, x_data, y_data):
