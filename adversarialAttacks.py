@@ -67,7 +67,7 @@ def softmax_robustness(original_outputs, adversarial_outputs):
 
 def fgsm_attack(net, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
 
-    epsilon = hyperparams["epsilon"] if hyperparams else 0.3
+    epsilon = hyperparams["epsilon"] if hyperparams is not None else 0.3
 
     image.requires_grad = True
     output = net.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
@@ -85,7 +85,7 @@ def fgsm_attack(net, image, label, hyperparams=None, n_samples=None, avg_posteri
 
 def pgd_attack(net, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
 
-    if hyperparams: 
+    if hyperparams is not None: 
         epsilon, alpha, iters = (hyperparams["epsilon"], 2/image.max(), 40)
     else:
         epsilon, alpha, iters = (0.5, 2/225, 40)
@@ -114,6 +114,7 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, savedir=
     print(f"\nProducing {method} attacks on {dataset_name}:")
 
     adversarial_attack = []
+    
     for idx in tqdm(range(len(x_test))):
         image = x_test[idx].unsqueeze(0).to(device)
         label = y_test[idx].argmax(-1).unsqueeze(0).to(device)

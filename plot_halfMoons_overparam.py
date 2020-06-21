@@ -1,3 +1,7 @@
+"""
+NEEDS HEAVY REFACTORING
+"""
+
 import argparse
 import os
 from directories import *
@@ -190,7 +194,6 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, posterior_samples, hidden_siz
             df = dataset[(categorical_rows==row_val)&(categorical_cols==col_val)]
             g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", 
                                 size="n_inputs", hue="n_inputs", alpha=0.8, legend=legend,
-                                # vmin=min_acc, vmax=max_acc,  
                                 ax=ax[r,c], sizes=(20, 80), palette=cmap)
             ax[r,c].set_xlabel("")
             ax[r,c].set_ylabel("")
@@ -198,21 +201,11 @@ def scatterplot_gridSearch_samp_vs_hidden(dataset, posterior_samples, hidden_siz
             ylim=1.1*np.max(np.abs(df["loss_gradients_y"]))
             ax[r,c].set_xlim(-xlim,+xlim)
             ax[r,c].set_ylim(-ylim,+ylim)
-
-            # ax[0,c].xaxis.set_label_position("top")
-            # ax[r,-1].yaxis.set_label_position("right")
             ax[-1,c].set_xlabel(str(col_val),labelpad=3,fontdict=dict(weight='bold'))
             ax[r,0].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold')) 
 
     g.legend(loc='center right', bbox_to_anchor=(1.25, 0.5), ncol=1)
 
-    ## colorbar    
-    # cbar_ax = fig.add_axes([0.93, 0.08, 0.01, 0.8])
-    # cbar = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap), cax=cbar_ax)
-    # cbar.ax.set_ylabel('Test accuracy (%)', rotation=270, fontdict=dict(weight='bold'))
-    # cbar.set_ticks([0,1])
-    # cbar.set_ticklabels([ACC_THS,100])
-    
     ## titles and labels
     fig.text(0.03, 0.5, "Hidden size", va='center',fontsize=12, rotation='vertical',
         fontdict=dict(weight='bold'))
@@ -269,18 +262,12 @@ def scatterplot_gridSearch_variance(dataset, test_points, device="cuda"):
     dataset = dataset[dataset["test_acc"]>ACC_THS]
     print("\n---scatterplot_gridSearch_variance---\n", dataset)
 
-    # categorical = dataset["hidden_size"]
-    # ncols = len(np.unique(categorical))
-
     sns.set_style("darkgrid")
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
     matplotlib.rc('font', **{'weight': 'bold', 'size': 10})
     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(16, 5), dpi=150, 
                            facecolor='w', edgecolor='k')
 
-    # for idx, val in enumerate(np.unique(categorical)):
-
-    # df = dataset[categorical==val]
     var_ths = np.max(df["var"])*0.01
     df = dataset[dataset["var"]>var_ths]
     g = sns.stripplot(data=df, x="hidden_size", y="var", hue="posterior_samples",
@@ -289,17 +276,11 @@ def scatterplot_gridSearch_variance(dataset, test_points, device="cuda"):
                         ax=ax, palette="gist_heat")
 
     g.set(ylim=(0, None))
-    # ax[idx].set_title(str(val)+" samples")
     ax.set_xlabel(f"{val}")
     ax.set_ylabel("")
     ax.xaxis.set_label_position("top")
 
     fig.text(0.5, 0.01, 'Posterior samples', ha='center', fontsize=12)
-    # fig.text(0.03, 0.5, 'Expected loss gradients components', va='center',fontsize=12,
-    # ax.legend(loc='upper right', title="Hidden size")
-
-    # fig.text(0.5, 0.01, "Samples involved in the expectations ($w \sim p(w|D)$)", ha='center')
-
     filename = "halfMoons_lossGrads_compVariance_"+str(test_points)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
@@ -435,7 +416,6 @@ def plot_rob_acc(dataset, test_points, method, device="cuda"):
         g = sns.scatterplot(data=df, x="test_acc", y="softmax_rob", 
                             size="n_inputs", hue="n_inputs", alpha=0.9, 
                             ax=ax[i], legend="full", sizes=(20, 100), palette=cmap)
-        # ax[i].set_xlim(ACC_THS,101)
         ax[i].set_ylim(-0.1,1.1)
         ax[i].set_xlabel("")
         ax[i].set_ylabel(f"{categ_row}", rotation=270, labelpad=10,
@@ -488,7 +468,6 @@ def stripplot_rob_acc(dataset, test_points, method, device="cuda"):
     ax[1,1].legend_.remove()
     ax[1,0].legend_.remove()
 
-    # fig.text(0.5, 0.01, r"Test accuracy", fontsize=12, ha='center',fontdict=dict(weight='bold'))
     fig.text(0.03, 0.3, "Hidden size", va='center',fontsize=10, rotation='vertical', fontdict=dict(weight='bold'))
     fig.text(0.03, 0.8, "Posterior samples", va='center',fontsize=10, rotation='vertical', fontdict=dict(weight='bold'))
 
@@ -534,15 +513,7 @@ def plot_attacks(dataset, test_points, method, device="cuda"):
     ax[0,0].set_ylabel("Original points",labelpad=3,fontdict=dict(weight='bold'))
     ax[1,0].set_ylabel("Adversarial points",labelpad=10,fontdict=dict(weight='bold')) 
 
-    ## colorbar    
-    # cbar_ax1 = fig.add_axes([0.93, 0.5, 0.01, 0.35])
-    # cbar1 = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap1), cax=cbar_ax1)
-    # cbar_ax2 = fig.add_axes([0.93, 0.1, 0.01, 0.35])
-    # cbar2 = fig.colorbar(matplotlib.cm.ScalarMappable(norm=None, cmap=cmap2), cax=cbar_ax2)
-
     ## titles and labels
-    # fig.text(0.03, 0.5, "Softmax robustness", va='center',fontsize=12, rotation='vertical',
-    #     fontdict=dict(weight='bold'))
     fig.text(0.5, 0.01, r"Hidden size", 
         fontsize=12, ha='center',fontdict=dict(weight='bold'))
     fig.suptitle(f"{method} adversarial attack on Half Moons dataset",
@@ -648,23 +619,14 @@ def final_scatterplot_svi_hmc(dataset, hidden_size, test_points, device="cuda"):
         for r, row_val in enumerate(np.unique(categorical_rows)):
             df = dataset[(categorical_rows==row_val)&(categorical_cols==col_val)]
 
-            # legend = "full" if ((c==1)&(r==2)) else None
             g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", alpha=0.8, 
-                            # hue="n_inputs", size="n_inputs", legend=legend, 
                             hue="test_acc", hue_norm=norm, size="n_inputs", legend=False, 
                             ax=ax[r,c], sizes=(30, 80), palette=cmap)
             ax[r,c].set_xlabel("")
             ax[r,c].set_ylabel("")
             xlim=1.1*np.max(np.abs(df["loss_gradients_x"]))
             ylim=1.1*np.max(np.abs(df["loss_gradients_y"]))
-            # ax[r,c].set_xlim(-xlim,+xlim)
-            # ax[r,c].set_ylim(-ylim,+ylim)
-
             ax[r,0].set_ylabel(str(row_val),labelpad=10,fontdict=dict(weight='bold')) 
-            # ax[0,c].xaxis.set_label_position("top")
-
-    ## inputs legend
-    # g.legend(loc='center right', bbox_to_anchor=(1.25, 0.5), ncol=1)
     
     ## colorbar    
     cbar_ax = fig.add_axes([0.93, 0.11, 0.01, 0.77])
@@ -741,14 +703,12 @@ def final_scatterplot_hmc(dataset, hidden_size, test_points, orient="v", device=
     if orient == "h":
         legend = g.legend(loc='center right', bbox_to_anchor=(1.6, 0.5), ncol=1, title="")
         legend.texts[0].set_text("training\ninputs")
-    ## titles and labels
-    # fig.text(0.02, 0.5, "Hidden size", va='center',fontsize=10, rotation='vertical',
-    #     fontdict=dict(weight='bold'))
 
     plt.tight_layout()
     filename = "halfMoons_final_hmc_"+str(test_points)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
     plt.savefig(TESTS + filename)
+
 
 def main(args):
 
@@ -847,8 +807,7 @@ def main(args):
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="Toy example on half moons")
-
-    parser.add_argument("--inputs", default=1000, type=int)
+    parser.add_argument("--n_inputs", default=1000, type=int)
     parser.add_argument("--hidden_size", default=128, type=int, help="power of 2 >= 16")
     parser.add_argument("--activation", default="leaky", type=str, 
                         help="relu, leaky, sigm, tanh")
@@ -859,5 +818,4 @@ if __name__ == "__main__":
     parser.add_argument("--warmup", default=5, type=int)
     parser.add_argument("--lr", default=0.001, type=float)
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
-   
     main(args=parser.parse_args())
