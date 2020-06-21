@@ -140,13 +140,13 @@ def main(args):
 
     # === load BNN and data ===
 
-    model = saved_BNNs["model_"+str(args.model_idx)]
-    dataset, init = list(model.values())[0], list(model.values())[1:]
+    dataset, model = saved_BNNs["model_"+str(args.model_idx)]
+    batch_size = 5000 if model["inference"] == "hmc" else 128
 
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.inputs, shuffle=False)
 
-    bnn = BNN(dataset, *init, inp_shape, out_size)
+    bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
     bnn.load(device=args.device, rel_path=DATA)
 
     # === plot loss gradients ===

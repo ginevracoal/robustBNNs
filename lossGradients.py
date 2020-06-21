@@ -117,19 +117,19 @@ def main(args):
 
     posterior_samples_list=[1,10,100]
 
-    # === load BNN and data ===
+    ### load BNN and data
 
-    model = saved_BNNs["model_"+str(args.model_idx)]
-    dataset, init = list(model.values())[0], list(model.values())[1:]
+    dataset, model = saved_BNNs["model_"+str(args.model_idx)]
+    batch_size = 5000 if model["inference"] == "hmc" else 128
 
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.inputs, shuffle=False)
+        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
 
-    bnn = BNN(dataset, *init, inp_shape, out_size)
+    bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
     bnn.load(device=args.device, rel_path=DATA)
     filename = bnn.name
     
-    # === compute loss gradients ===
+    ### compute loss gradients
 
     for posterior_samples in posterior_samples_list:
         loss_gradients(net=bnn, n_samples=posterior_samples, savedir=filename+"/", 
@@ -139,7 +139,7 @@ def main(args):
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
-    parser.add_argument("--inputs", default=1000, type=int)
+    parser.add_argument("--n_inputs", default=1000, type=int)
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
     parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())

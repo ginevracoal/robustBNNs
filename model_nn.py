@@ -86,7 +86,7 @@ class NN(nn.Module):
         else:
             raise NotImplementedError()
 
-    def forward(self, inputs):
+    def forward(self, inputs, *args, **kwargs):
         x = self.model(inputs)
         return nn.LogSoftmax(dim=-1)(x)
 
@@ -183,7 +183,7 @@ def main(args):
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=dataset, batch_size=64, 
-                                         n_inputs=args.inputs, shuffle=True)
+                                         n_inputs=args.n_inputs, shuffle=True)
 
     nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
             hidden_size=hid, activation=activ, architecture=arch, epochs=ep, lr=lr)
@@ -199,7 +199,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Base NN")
-    parser.add_argument("--inputs", default=60000, type=int, help="number of input points")
+    parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)

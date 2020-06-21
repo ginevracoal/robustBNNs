@@ -31,18 +31,18 @@ softplus = torch.nn.Softplus()
 DEBUG=False
 
 
-saved_BNNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
+saved_BNNs = {"model_0":["mnist", {"hidden_size":512, "activation":"leaky",
                          "architecture":"conv", "inference":"svi", "epochs":5, 
-                         "lr":0.01, "n_samples":None, "warmup":None},
-              "model_1":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
+                         "lr":0.01, "n_samples":None, "warmup":None}],
+              "model_1":["mnist", {"hidden_size":512, "activation":"leaky",
                          "architecture":"fc2", "inference":"hmc", "epochs":None,
-                         "lr":None, "n_samples":100, "warmup":50},
-              "model_2":{"dataset":"fashion_mnist", "hidden_size":1024, "activation":"leaky",
+                         "lr":None, "n_samples":100, "warmup":50}],
+              "model_2":["fashion_mnist", {"hidden_size":1024, "activation":"leaky",
                          "architecture":"conv", "inference":"svi", "epochs":10,
-                         "lr":0.001, "n_samples":None, "warmup":None},
-              "model_3":{"dataset":"fashion_mnist", "hidden_size":1024, "activation":"leaky",
+                         "lr":0.001, "n_samples":None, "warmup":None}],
+              "model_3":["fashion_mnist", {"hidden_size":1024, "activation":"leaky",
                          "architecture":"fc2", "inference":"hmc", "epochs":None,
-                         "lr":None, "n_samples":100, "warmup":50}}
+                         "lr":None, "n_samples":100, "warmup":50}]}
 
 
 class BNN(PyroModule):
@@ -59,7 +59,7 @@ class BNN(PyroModule):
         self.warmup = warmup
         self.step_size = 0.001
         self.num_steps = 30
-        self.net = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size, 
+        self.basenet = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size, 
                         hidden_size=hidden_size, activation=activation, architecture=architecture, 
                         epochs=epochs, lr=lr)
         self.name = self.get_name()
@@ -67,8 +67,8 @@ class BNN(PyroModule):
     def get_name(self, n_inputs=None):
         
         name = str(self.dataset_name)+"_bnn_"+str(self.inference)+"_hid="+\
-               str(self.net.hidden_size)+"_act="+str(self.net.activation)+\
-               "_arch="+str(self.net.architecture)
+               str(self.basenet.hidden_size)+"_act="+str(self.basenet.activation)+\
+               "_arch="+str(self.basenet.architecture)
 
         if n_inputs:
             name = name+"_inp="+str(n_inputs)
@@ -82,13 +82,13 @@ class BNN(PyroModule):
     def model(self, x_data, y_data):
 
         priors = {}
-        for key, value in self.net.state_dict().items():
+        for key, value in self.basenet.state_dict().items():
             loc = torch.zeros_like(value)
             scale = torch.ones_like(value)
             prior = Normal(loc=loc, scale=scale)
             priors.update({str(key):prior})
 
-        lifted_module = pyro.random_module("module", self.net, priors)()
+        lifted_module = pyro.random_module("module", self.basenet, priors)()
 
         with pyro.plate("data", len(x_data)):
             preds = lifted_module(x_data)
@@ -100,13 +100,13 @@ class BNN(PyroModule):
     def guide(self, x_data, y_data=None):
 
         dists = {}
-        for key, value in self.net.state_dict().items():
+        for key, value in self.basenet.state_dict().items():
             loc = pyro.param(str(f"{key}_loc"), torch.randn_like(value)) 
             scale = pyro.param(str(f"{key}_scale"), torch.randn_like(value))
             distr = Normal(loc=loc, scale=softplus(scale))
             dists.update({str(key):distr})
 
-        lifted_module = pyro.random_module("module", self.net, dists)()
+        lifted_module = pyro.random_module("module", self.basenet, dists)()
 
         with pyro.plate("data", len(x_data)):
             preds = lifted_module(x_data)
@@ -122,7 +122,7 @@ class BNN(PyroModule):
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         if self.inference == "svi":
-            self.net.to("cpu")
+            self.basenet.to("cpu")
             self.to("cpu")
             param_store = pyro.get_param_store()
             print("\nSaving: ", path + filename +".pt")
@@ -130,7 +130,7 @@ class BNN(PyroModule):
             param_store.save(path + filename +".pt")
 
         elif self.inference == "hmc":
-            self.net.to("cpu")
+            self.basenet.to("cpu")
             self.to("cpu")
 
             for key, value in self.posterior_predictive.items():
@@ -155,7 +155,7 @@ class BNN(PyroModule):
 
             self.posterior_predictive={}
             for model_idx in range(self.n_samples):
-                net_copy = copy.deepcopy(self.net)
+                net_copy = copy.deepcopy(self.basenet)
                 net_copy.load_state_dict(torch.load(path+filename+"_"+str(model_idx)+".pt"))
                 self.posterior_predictive.update({model_idx:net_copy})      
 
@@ -163,7 +163,7 @@ class BNN(PyroModule):
                 raise AttributeError("wrong number of posterior models")
 
         self.to(device)
-        self.net.to(device)
+        self.basenet.to(device)
 
     def forward(self, inputs, n_samples=10, return_prob=True, avg_posterior=False, seeds=None):
         
@@ -179,14 +179,14 @@ class BNN(PyroModule):
 
                 guide_trace = poutine.trace(self.guide).get_trace(inputs)   
 
-                # load posterior loc in self.net model and evaluate
+                # load posterior loc in self.basenet model and evaluate
                 avg_state_dict = {}
-                for key in self.net.state_dict().keys():
+                for key in self.basenet.state_dict().keys():
                     avg_weights = guide_trace.nodes[str(key)+"_loc"]['value']
                     avg_state_dict.update({str(key):avg_weights})
 
-                self.net.load_state_dict(avg_state_dict)
-                preds = [self.net.model(inputs)]
+                self.basenet.load_state_dict(avg_state_dict)
+                preds = [self.basenet.model(inputs)]
 
             else:
                 preds = []  
@@ -242,13 +242,13 @@ class BNN(PyroModule):
 
         self.posterior_predictive={}
         posterior_samples = mcmc.get_samples(n_samples)
-        state_dict_keys = list(self.net.state_dict().keys())
+        state_dict_keys = list(self.basenet.state_dict().keys())
 
         if DEBUG:
             print("\n", list(posterior_samples.values())[-1])
 
         for model_idx in range(n_samples):
-            net_copy = copy.deepcopy(self.net)
+            net_copy = copy.deepcopy(self.basenet)
 
             model_dict=OrderedDict({})
             for weight_idx, weights in enumerate(posterior_samples.values()):
@@ -309,7 +309,7 @@ class BNN(PyroModule):
 
     def train(self, train_loader, device):
         self.to(device)
-        self.net.to(device)
+        self.basenet.to(device)
         random.seed(0)
         pyro.set_rng_seed(0)
 
@@ -322,7 +322,7 @@ class BNN(PyroModule):
 
     def evaluate(self, test_loader, device, n_samples=10):
         self.to(device)
-        self.net.to(device)
+        self.basenet.to(device)
         random.seed(0)
         pyro.set_rng_seed(0)
 
@@ -349,15 +349,14 @@ def main(args):
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-    model = saved_BNNs["model_"+str(args.model_idx)]
-    dataset, init = list(model.values())[0], list(model.values())[1:]
+    dataset, model = saved_BNNs["model_"+str(args.model_idx)]
     batch_size = 5000 if model["inference"] == "hmc" else 128
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=dataset, batch_size=batch_size, 
-                                         n_inputs=args.inputs, shuffle=True)
+                                         n_inputs=args.n_inputs, shuffle=True)
                         
-    bnn = BNN(dataset, *init, inp_shape, out_size)
+    bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
    
     if args.train:
         bnn.train(train_loader=train_loader, device=args.device)
@@ -371,7 +370,7 @@ def main(args):
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
-    parser.add_argument("--inputs", default=60000, type=int, help="number of input points")
+    parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)

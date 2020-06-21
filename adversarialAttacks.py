@@ -65,19 +65,19 @@ def softmax_robustness(original_outputs, adversarial_outputs):
 # adversarial attacks #
 #######################
 
-def fgsm_attack(model, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
+def fgsm_attack(net, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
 
     epsilon = hyperparams["epsilon"] if hyperparams else 0.3
 
     image.requires_grad = True
 
-    if n_samples or avg_posterior:
-        output = model.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
+    if n_samples is not None or avg_posterior:
+        output = net.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
     else:
-        output = model.forward(inputs=image)
+        output = net.forward(inputs=image)
 
     loss = torch.nn.CrossEntropyLoss()(output, label)
-    model.zero_grad()
+    net.zero_grad()
     loss.backward()
     image_grad = image.grad.data
 
@@ -87,7 +87,7 @@ def fgsm_attack(model, image, label, hyperparams=None, n_samples=None, avg_poste
     return perturbed_image
 
 
-def pgd_attack(model, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
+def pgd_attack(net, image, label, hyperparams=None, n_samples=None, avg_posterior=False):
 
     if hyperparams: 
         epsilon, alpha, iters = (hyperparams["epsilon"], 2/image.max(), 40)
@@ -100,12 +100,12 @@ def pgd_attack(model, image, label, hyperparams=None, n_samples=None, avg_poster
         image.requires_grad = True  
 
         if n_samples or avg_posterior:
-            output = model.forward(image, n_samples, avg_posterior)
+            output = net.forward(image, n_samples, avg_posterior)
         else:
-            output = model.forward(image)
+            output = net.forward(image)
 
         loss = torch.nn.CrossEntropyLoss()(output, label)
-        model.zero_grad()
+        net.zero_grad()
         loss.backward()
 
         perturbed_image = image + alpha * image.grad.data.sign()
@@ -127,11 +127,11 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, savedir=
         label = y_test[idx].argmax(-1).unsqueeze(0).to(device)
 
         if method == "fgsm":
-            perturbed_image = fgsm_attack(model=net, image=image, label=label, 
+            perturbed_image = fgsm_attack(net=net, image=image, label=label, 
                                           hyperparams=hyperparams, n_samples=n_samples,
                                           avg_posterior=avg_posterior)
         elif method == "pgd":
-            perturbed_image = pgd_attack(model=net, image=image, label=label, 
+            perturbed_image = pgd_attack(net=net, image=image, label=label, 
                                           hyperparams=hyperparams, n_samples=n_samples,
                                           avg_posterior=avg_posterior)
 
@@ -145,13 +145,13 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, savedir=
     save_to_pickle(data=adversarial_attack, path=path, filename=name)
     return adversarial_attack
 
-def load_attack(model, method, filename, savedir=None, n_samples=None, rel_path=TESTS):
+def load_attack(method, filename, savedir=None, n_samples=None, rel_path=TESTS):
     path = TESTS+filename+"/" if savedir is None else TESTS+savedir+"/"
     name = filename+"_"+str(method)
     name = name+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else name+"_attack.pkl"
     return load_from_pickle(path=path+name)
 
-def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
+def attack_evaluation(net, x_test, x_attack, y_test, device, n_samples=None):
 
     if device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -167,8 +167,8 @@ def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
     x_attack = x_attack.to(device)
     y_test = y_test.to(device)
 
-    if hasattr(model, 'net'):
-        model.net.to(device) # fixed layers in BNN
+    if hasattr(net, 'net'):
+        net.basenet.to(device) # fixed layers in BNN
 
     test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=128, shuffle=False)
     attack_loader = DataLoader(dataset=list(zip(x_attack, y_test)), batch_size=128, shuffle=False)
@@ -178,14 +178,14 @@ def attack_evaluation(model, x_test, x_attack, y_test, device, n_samples=None):
         original_outputs = []
         original_correct = 0.0
         for images, labels in test_loader:
-            out = model.forward(images, n_samples) if n_samples else model.forward(images)
+            out = net.forward(images, n_samples)
             original_correct += ((out.argmax(-1) == labels.argmax(-1)).sum().item())
             original_outputs.append(out)
 
         adversarial_outputs = []
         adversarial_correct = 0.0
         for attacks, labels in attack_loader:
-            out = model.forward(attacks, n_samples) if n_samples else model.forward(attacks)
+            out = net.forward(attacks, n_samples)
             adversarial_correct += ((out.argmax(-1) == labels.argmax(-1)).sum().item())
             adversarial_outputs.append(out)
 
@@ -235,23 +235,21 @@ def main(args):
             nn.evaluate(test_loader=test_loader, device=args.device)
 
         ### attack NN
-
         if args.attack:
             x_test, y_test = (torch.from_numpy(x_test[:args.attack_inputs]), 
                               torch.from_numpy(y_test[:args.attack_inputs]))
             x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
-                              device=args.device, method=args.attack_name, filename=nn.name)
+                              device=args.device, method=args.attack_method, filename=nn.name)
         else:
-            x_attack = load_attack(model=nn, method=args.attack_name, rel_path=DATA, filename=nn.name)
+            x_attack = load_attack(net=nn, method=args.attack_method, rel_path=DATA, filename=nn.name)
 
-        attack_evaluation(model=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
+        attack_evaluation(net=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
                             device=args.device)
 
     else:
 
         ### BNN model
-        model = saved_BNNs["model_"+str(args.model_idx)]
-        dataset, init = list(model.values())[0], list(model.values())[1:]
+        dataset, model = saved_BNNs["model_"+str(args.model_idx)]
         batch_size = 5000 if model["inference"] == "hmc" else 128
 
         x_train, y_train, x_test, y_test, inp_shape, out_size = \
@@ -260,7 +258,7 @@ def main(args):
                                   shuffle=True)
         test_loader = DataLoader(dataset=list(zip(x_test, y_test)))
 
-        bnn = BNN(dataset, *init, inp_shape, out_size)
+        bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
 
         if args.train:
             bnn.train(train_loader=train_loader, device=args.device)
@@ -271,29 +269,29 @@ def main(args):
             bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
 
         ### attack BNN
-        x_test, y_test = (torch.from_numpy(x_test[:args.attack_inputs]), 
-                          torch.from_numpy(y_test[:args.attack_inputs]))
+        x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
+                          torch.from_numpy(y_test[:args.n_inputs]))
 
         for attack_samples in [1,10,50]:
             x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
-                              device=args.device, method=args.attack_name, filename=bnn.name, 
+                              device=args.device, method=args.attack_method, filename=bnn.name, 
                               n_samples=attack_samples)
 
             for defence_samples in [attack_samples, 100]:
-                attack_evaluation(model=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
+                attack_evaluation(net=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
                                   device=args.device, n_samples=defence_samples)
 
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
-    parser.add_argument("--attack_inputs", default=100, type=int)
+    parser.add_argument("--n_inputs", default=100, type=int, help="inputs to be attacked")
     parser.add_argument("--deterministic", default=False, type=eval, help="choose NN or BNN model")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)
     parser.add_argument("--attack", default=True, type=eval)
-    parser.add_argument("--attack_name", default="fgsm", type=str, help="fgsm, pgd")
+    parser.add_argument("--attack_method", default="fgsm", type=str, help="fgsm, pgd")
     parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")   
     main(args=parser.parse_args())
