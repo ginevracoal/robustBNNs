@@ -92,8 +92,8 @@ class BNN(PyroModule):
 
         with pyro.plate("data", len(x_data)):
             preds = lifted_module(x_data)
-            logits = nnf.log_softmax(preds, dim=-1)
-            obs = pyro.sample("obs", Categorical(logits=logits), obs=y_data)
+            log_probs = nnf.log_softmax(preds, dim=-1)
+            obs = pyro.sample("obs", Categorical(logits=log_probs), obs=y_data)
 
         return preds
 
@@ -109,10 +109,10 @@ class BNN(PyroModule):
         lifted_module = pyro.random_module("module", self.basenet, dists)()
 
         with pyro.plate("data", len(x_data)):
-            preds = lifted_module(x_data)
-            logits = nnf.log_softmax(preds, dim=-1)
+            logits = lifted_module(x_data)
+            log_probs = nnf.log_softmax(logits, dim=-1)
 
-        return preds
+        return logits
 
     def save(self):
 
