@@ -1,33 +1,39 @@
 """
 Deterministic Neural Network model
 """
-
-import argparse
-import os
 from savedir import *
 from utils import *
+import os
+import argparse
+import math 
+import numpy as np
+
 import torch
 from torch import nn
 import torch.nn.functional as nnf
-import numpy as np
 import torch.optim as torchopt
-import torch.nn.functional as F
 
 DEBUG = False
 
 saved_NNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
-                        "architecture":"conv", "epochs":10, "lr":0.01}}
+                        "architecture":"conv", "epochs":10, "lr":0.01},
+             "model_1":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
+                        "architecture":"fc2", "epochs":10, "lr":0.01}}
 
 
 class NN(nn.Module):
 
     def __init__(self, dataset_name, input_shape, output_size, hidden_size, activation, 
                  architecture, lr, epochs):
+
+        if math.log(hidden_size, 2).is_integer() is False or hidden_size<16:
+            raise ValueError("\nhidden size should be a power of 2 greater than 16.")
+
         super(NN, self).__init__()
         self.dataset_name = dataset_name
-        self.criterion = nn.CrossEntropyLoss()
+        self.loss_func = nn.CrossEntropyLoss()
         self.architecture = architecture
-        self.hidden_size = hidden_size # power of 2 >= 16
+        self.hidden_size = hidden_size
         self.output_size = output_size
         self.activation = activation
         self.lr, self.epochs = lr, epochs
@@ -88,7 +94,7 @@ class NN(nn.Module):
 
     def forward(self, inputs, *args, **kwargs):
         x = self.model(inputs)
-        return nn.LogSoftmax(dim=-1)(x)
+        return x
 
     def save(self, savedir=None):
         name = self.name 
@@ -127,27 +133,23 @@ class NN(nn.Module):
         for epoch in range(self.epochs):
             total_loss = 0.0
             correct_predictions = 0.0
-            accuracy = 0.0
-            total = 0.0
-            n_inputs = 0
 
             for x_batch, y_batch in train_loader:
-                n_inputs += len(x_batch)
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device).argmax(-1)
-                total += y_batch.size(0)
-
+                
                 optimizer.zero_grad()
                 outputs = self.forward(x_batch)
-                loss = self.criterion(outputs, y_batch)
+                loss = self.loss_func(outputs, y_batch)
                 loss.backward()
                 optimizer.step()
 
-                predictions = outputs.argmax(dim=1)
-                total_loss += loss.data.item() / len(train_loader.dataset)
+                predictions = outputs.argmax(-1)
                 correct_predictions += (predictions == y_batch).sum()
-                accuracy = 100 * correct_predictions / len(train_loader.dataset)
+                total_loss += loss.item()
 
+            total_loss = total_loss / len(train_loader.dataset)
+            accuracy = 100 * correct_predictions / len(train_loader.dataset)
             print(f"\n[Epoch {epoch + 1}]\t loss: {total_loss:.8f} \t accuracy: {accuracy:.2f}", 
                   end="\t")
 
@@ -167,7 +169,7 @@ class NN(nn.Module):
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device).argmax(-1)
                 outputs = self(x_batch)
-                predictions = outputs.argmax(dim=1)
+                predictions = outputs.argmax(-1)
                 correct_predictions += (predictions == y_batch).sum()
 
             accuracy = 100 * correct_predictions / len(test_loader.dataset)

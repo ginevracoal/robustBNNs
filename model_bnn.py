@@ -6,26 +6,28 @@ import argparse
 import os
 from savedir import *
 from utils import *
-import pyro
+import numpy as np
+import pandas as pd 
+import copy
+
 import torch
 from torch import nn
 import torch.nn.functional as nnf
-import numpy as np
-from pyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO, Predictive
 import torch.optim as torchopt
+import torch.distributions.constraints as constraints
+softplus = torch.nn.Softplus()
+
+import pyro
 from pyro import poutine
+from pyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO, Predictive
 import pyro.optim as pyroopt
-import torch.nn.functional as F
 from pyro.infer.mcmc import MCMC, HMC, NUTS
 from pyro.distributions import OneHotCategorical, Normal, Categorical, Uniform
-from utils import plot_loss_accuracy
-import torch.distributions.constraints as constraints
 from pyro.nn import PyroModule
-import pandas as pd 
-import copy
+
+from utils import plot_loss_accuracy
 from collections import OrderedDict
 from model_nn import NN
-softplus = torch.nn.Softplus()
 
 
 DEBUG=False
@@ -91,11 +93,9 @@ class BNN(PyroModule):
         lifted_module = pyro.random_module("module", self.basenet, priors)()
 
         with pyro.plate("data", len(x_data)):
-            preds = lifted_module(x_data)
-            log_probs = nnf.log_softmax(preds, dim=-1)
-            obs = pyro.sample("obs", Categorical(logits=log_probs), obs=y_data)
-
-        return preds
+            logits = lifted_module(x_data)
+            lhat = nnf.log_softmax(logits, dim=-1)
+            obs = pyro.sample("obs", Categorical(logits=lhat), obs=y_data)
 
     def guide(self, x_data, y_data=None):
 
@@ -107,12 +107,12 @@ class BNN(PyroModule):
             dists.update({str(key):distr})
 
         lifted_module = pyro.random_module("module", self.basenet, dists)()
-
+        
         with pyro.plate("data", len(x_data)):
             logits = lifted_module(x_data)
-            log_probs = nnf.log_softmax(logits, dim=-1)
+            preds = nnf.softmax(logits, dim=-1)
 
-        return logits
+        return preds
 
     def save(self):
 
@@ -165,13 +165,11 @@ class BNN(PyroModule):
         self.to(device)
         self.basenet.to(device)
 
-    def forward(self, inputs, n_samples=10, return_prob=True, avg_posterior=False, seeds=None):
+    def forward(self, inputs, n_samples=10, avg_posterior=False, seeds=None):
         
         if seeds:
             if len(seeds) != n_samples:
                 raise ValueError("Number of seeds should match number of samples.")
-        else:
-            seeds = list(range(n_samples))
 
         if self.inference == "svi":
 
@@ -179,7 +177,6 @@ class BNN(PyroModule):
 
                 guide_trace = poutine.trace(self.guide).get_trace(inputs)   
 
-                # load posterior loc in self.basenet model and evaluate
                 avg_state_dict = {}
                 for key in self.basenet.state_dict().keys():
                     avg_weights = guide_trace.nodes[str(key)+"_loc"]['value']
@@ -189,20 +186,29 @@ class BNN(PyroModule):
                 preds = [self.basenet.model(inputs)]
 
             else:
-                preds = []  
-                for i in range(n_samples):
-                    pyro.set_rng_seed(seeds[i])
-                    guide_trace = poutine.trace(self.guide).get_trace(inputs)   
-                    preds.append(guide_trace.nodes['_RETURN']['value'])
 
-                    if DEBUG:
-                        print("\nlearned variational params:\n")
-                        print(pyro.get_param_store().get_all_param_names())
-                        print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
-                        print("\n", pyro.get_param_store()["model.0.weight_loc"][0][:5])
-                        print(guide_trace.nodes['module$$$model.0.weight']["fn"].loc[0][:5])
-                        print("posterior sample: ", 
-                          guide_trace.nodes['module$$$model.0.weight']['value'][5][0][0])
+                preds = []  
+
+                if seeds:
+                    for seed in seeds:
+                        pyro.set_rng_seed(seed)
+                        guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                        preds.append(guide_trace.nodes['_RETURN']['value'])
+
+                else:
+
+                    for _ in range(n_samples):
+                        guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                        preds.append(guide_trace.nodes['_RETURN']['value'])
+
+                if DEBUG:
+                    print("\nlearned variational params:\n")
+                    print(pyro.get_param_store().get_all_param_names())
+                    print(list(poutine.trace(self.guide).get_trace(inputs).nodes.keys()))
+                    print("\n", pyro.get_param_store()["model.0.weight_loc"][0][:5])
+                    print(guide_trace.nodes['module$$$model.0.weight']["fn"].loc[0][:5])
+                    print("posterior sample: ", 
+                      guide_trace.nodes['module$$$model.0.weight']['value'][5][0][0])
 
         elif self.inference == "hmc":
 
@@ -211,15 +217,9 @@ class BNN(PyroModule):
             for seed in seeds:
                 net = posterior_predictive[seed]
                 preds.append(net.forward(inputs))
-
-        stacked_preds = torch.stack(preds, dim=0)
-        output_prob = nnf.softmax(stacked_preds.mean(0), dim=-1)
-
-        labels = output_prob.argmax(-1)
-        one_hot_preds = torch.zeros_like(output_prob)
-        one_hot_preds[range(one_hot_preds.shape[0]), labels]=1
-
-        return output_prob if return_prob==True else one_hot_preds
+        
+        output_probs = torch.stack(preds).mean(0)
+        return output_probs 
 
     def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device):
         print("\n == HMC training ==")
@@ -283,7 +283,7 @@ class BNN(PyroModule):
                 y_batch = y_batch.to(device)
                 loss += svi.step(x_data=x_batch, y_data=y_batch.argmax(dim=-1))
 
-                outputs = self.forward(x_batch, n_samples=10).to(device)
+                outputs = self.forward(x_batch, n_samples=1).to(device)
                 predictions = outputs.argmax(dim=-1)
                 labels = y_batch.argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()
@@ -332,7 +332,8 @@ class BNN(PyroModule):
             for x_batch, y_batch in test_loader:
 
                 x_batch = x_batch.to(device)
-                outputs = self.forward(x_batch, n_samples=n_samples).to(device)
+                outputs = self.forward(x_batch, n_samples=n_samples,
+                    seeds=list(range(n_samples))).to(device)
                 predictions = outputs.argmax(-1)
                 labels = y_batch.to(device).argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()
@@ -350,7 +351,7 @@ def main(args):
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     dataset, model = saved_BNNs["model_"+str(args.model_idx)]
-    batch_size = 5000 if model["inference"] == "hmc" else 128
+    batch_size = 5000 if model["inference"] == "hmc" else 64
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=dataset, batch_size=batch_size, 
