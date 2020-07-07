@@ -30,7 +30,7 @@ def loss_gradient(net, image, label, n_samples=None):
             x_copy = copy.deepcopy(image)
             x_copy.requires_grad = True
 
-            output = net.forward(inputs=x_copy, return_prob=True, n_samples=1, seeds=[i])
+            output = net.forward(inputs=x_copy, n_samples=1, seeds=[i])
             loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
             net.zero_grad()
             loss.backward()
@@ -39,7 +39,7 @@ def loss_gradient(net, image, label, n_samples=None):
 
         loss_gradient = torch.stack(loss_gradients,0).mean(0)
 
-    else: ## non bayesian
+    else: ## deterministic
         output = net_copy.forward(inputs=x_copy) 
 
         loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
@@ -82,6 +82,9 @@ def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
 
     print("\nvanishing gradients norms:\n")
     count_van_images = 0
+    count_incr_images = 0
+    count_null_images = 0
+
     for image_idx, image_gradients in enumerate(loss_gradients):
 
         if norm == "linfty":
@@ -103,12 +106,22 @@ def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
                     print(new_gradient_norm, end="\t")
                     gradient_norm = copy.deepcopy(new_gradient_norm)
                     count_samples_idx += 1
+
             if count_samples_idx == len(n_samples_list):
                 vanishing_gradients_idxs.append(image_idx)
                 print("\tcount=", count_van_images)
                 count_van_images += 1
+            else: 
+                count_incr_images += 1
+
             print("\n")
 
+        else:
+            count_null_images += 1
+
+    print(f"vanishing gradients = {count_van_images/len(loss_gradients)} %")
+    print(f"increasing gradients = {count_incr_images/len(loss_gradients)} %")
+    print(f"null gradients = {count_null_images/len(loss_gradients)} %")
     print("\nvanishing_gradients_idxs = ", vanishing_gradients_idxs)
     return vanishing_gradients_idxs
 

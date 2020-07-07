@@ -64,6 +64,7 @@ class BNN(PyroModule):
         self.basenet = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size, 
                         hidden_size=hidden_size, activation=activation, architecture=architecture, 
                         epochs=epochs, lr=lr)
+        print(self.basenet)
         self.name = self.get_name()
 
     def get_name(self, n_inputs=None):
@@ -283,7 +284,7 @@ class BNN(PyroModule):
                 y_batch = y_batch.to(device)
                 loss += svi.step(x_data=x_batch, y_data=y_batch.argmax(dim=-1))
 
-                outputs = self.forward(x_batch, n_samples=1).to(device)
+                outputs = self.forward(x_batch, n_samples=10).to(device)
                 predictions = outputs.argmax(dim=-1)
                 labels = y_batch.argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()
@@ -351,7 +352,7 @@ def main(args):
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     dataset, model = saved_BNNs["model_"+str(args.model_idx)]
-    batch_size = 5000 if model["inference"] == "hmc" else 64
+    batch_size = 5000 if model["inference"] == "hmc" else 128
 
     train_loader, test_loader, inp_shape, out_size = \
                             data_loaders(dataset_name=dataset, batch_size=batch_size, 
