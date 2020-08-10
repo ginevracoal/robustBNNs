@@ -16,7 +16,7 @@ import torch.optim as torchopt
 DEBUG = False
 
 saved_NNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
-                        "architecture":"conv", "epochs":10, "lr":0.01},
+                        "architecture":"conv", "epochs":5, "lr":0.01},
              "model_1":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
                         "architecture":"fc2", "epochs":10, "lr":0.01}}
 
@@ -80,6 +80,10 @@ class NN(nn.Module):
                 nn.Linear(hidden_size, output_size))
 
         elif architecture == "conv":
+
+            if self.dataset_name not in ["mnist","fashion_mnist"]:
+                raise NotImplementedError()
+
             self.model = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=5),
                 activ(),
@@ -96,24 +100,27 @@ class NN(nn.Module):
         x = self.model(inputs)
         return x
 
-    def save(self, savedir=None):
+    def save(self, savedir=None, seed=None):
         name = self.name 
-        directory = name if savedir is None else self.savedir
+        directory = name if savedir is None else savedir
+        filename = name+"_weights.pt" if seed is None else name+"_weights_"+str(seed)+".pt"
+
         os.makedirs(os.path.dirname(TESTS+directory+"/"), exist_ok=True)
-        print("\nSaving: ", TESTS+directory+"/"+name+"_weights.pt")
-        torch.save(self.state_dict(), TESTS+directory+"/"+name+"_weights.pt")
+        print("\nSaving: ", TESTS+directory+"/"+filename)
+        torch.save(self.state_dict(), TESTS+directory+"/"+filename)
 
         if DEBUG:
             print("\nCheck saved weights:")
             print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
             print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-    def load(self, device, savedir=None, rel_path=TESTS):
+    def load(self, device, savedir=None, seed=None, rel_path=TESTS):
         name = self.name
         directory = name if savedir is None else savedir
+        filename = name+"_weights.pt" if seed is None else name+"_weights_"+str(seed)+".pt"
 
-        print("\nLoading: ", rel_path+directory+"/"+name+"_weights.pt")
-        self.load_state_dict(torch.load(rel_path+directory+"/"+name+"_weights.pt"))
+        print("\nLoading: ", rel_path+directory+"/"+filename)
+        self.load_state_dict(torch.load(rel_path+directory+"/"+filename))
         print("\n", list(self.state_dict().keys()), "\n")
         self.to(device)
 
@@ -122,9 +129,9 @@ class NN(nn.Module):
             print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
             print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-    def train(self, train_loader, device):
+    def train(self, train_loader, device, seed=0):
         print("\n == NN training ==")
-        random.seed(0)
+        random.seed(seed)
         self.to(device)
 
         optimizer = torchopt.Adam(params=self.parameters(), lr=self.lr)
@@ -158,7 +165,7 @@ class NN(nn.Module):
 
     def evaluate(self, test_loader, device, *args, **kwargs):
         self.to(device)
-        random.seed(0)
+        # random.seed(0)
 
         with torch.no_grad():
 

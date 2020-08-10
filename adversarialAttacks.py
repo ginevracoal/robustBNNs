@@ -13,6 +13,7 @@ import copy
 import torch
 from model_nn import NN, saved_NNs
 from model_bnn import BNN, saved_BNNs
+from model_ensemble import Ensemble_NN
 import numpy as np
 from torch.utils.data import DataLoader
 import torch.nn.functional as nnf
@@ -200,15 +201,13 @@ def attack_evaluation(net, x_test, x_attack, y_test, device, n_samples=None):
 
 def main(args):
 
-    bayesian_attack_samples=[1,10,50]
-
     rel_path=DATA if args.savedir=="DATA" else TESTS
     train_inputs = 100 if DEBUG else None
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
-    if args.deterministic:
+    if args.model_type=="nn":
 
         ### NN model
         dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
@@ -231,17 +230,20 @@ def main(args):
 
         ### attack NN
         if args.attack:
-            x_test, y_test = (torch.from_numpy(x_test[:args.attack_inputs]), 
-                              torch.from_numpy(y_test[:args.attack_inputs]))
+            x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
+                              torch.from_numpy(y_test[:args.n_inputs]))
             x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
                               device=args.device, method=args.attack_method, filename=nn.name)
         else:
-            x_attack = load_attack(net=nn, method=args.attack_method, rel_path=DATA, filename=nn.name)
+            x_attack = load_attack(method=args.attack_method, rel_path=DATA, filename=nn.name)
 
         attack_evaluation(net=nn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
                             device=args.device)
 
-    else:
+    elif args.model_type=="bnn":
+
+        bayesian_attack_samples=[1]
+        bayesian_defence_samples=[100]
 
         ### BNN model
         dataset, model = saved_BNNs["model_"+str(args.model_idx)]
@@ -272,18 +274,53 @@ def main(args):
                               device=args.device, method=args.attack_method, filename=bnn.name, 
                               n_samples=attack_samples)
 
-            for defence_samples in [attack_samples]:
+            for defence_samples in bayesian_defence_samples:
                 attack_evaluation(net=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
                                   device=args.device, n_samples=defence_samples)
+
+    elif args.model_type=="ensemble":
+
+        ensemble_size = 100
+        n_samples_list = [100]
+
+        dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
+
+        _, _, x_test, y_test, inp_shape, out_size = \
+            load_dataset(dataset_name=dataset, n_inputs=args.n_inputs)
+        test_loader = DataLoader(dataset=list(zip(x_test, y_test)))
+
+        x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
+                          torch.from_numpy(y_test[:args.n_inputs]))
+
+        nn = Ensemble_NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
+                hidden_size=hid, activation=activ, architecture=arch, epochs=ep, lr=lr,
+                ensemble_size=ensemble_size)
+
+        nn.load(device=args.device, rel_path=rel_path)
+        
+        for n_samples in n_samples_list:
+
+            if args.test:
+                nn.evaluate(test_loader=test_loader, device=args.device, n_samples=n_samples)
+
+            nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
+                              device=args.device, method=args.attack_method, filename=nn.name,
+                              n_samples=n_samples)
+
+            attack_evaluation(net=nn, x_test=x_test, x_attack=nn_attack, y_test=y_test, 
+                                device=args.device, n_samples=n_samples)
+        
+    else:
+        raise NotImplementedError()
 
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
-    parser.add_argument("--n_inputs", default=100, type=int, help="inputs to be attacked")
-    parser.add_argument("--deterministic", default=False, type=eval, help="choose NN or BNN model")
+    parser.add_argument("--n_inputs", default=1000, type=int, help="inputs to be attacked")
+    parser.add_argument("--model_type", default="nn", type=str, help="nn, bnn, ensemble")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
-    parser.add_argument("--train", default=True, type=eval)
+    parser.add_argument("--train", default=False, type=eval)
     parser.add_argument("--test", default=True, type=eval)
     parser.add_argument("--attack", default=True, type=eval)
     parser.add_argument("--attack_method", default="fgsm", type=str, help="fgsm, pgd")

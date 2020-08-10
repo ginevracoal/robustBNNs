@@ -134,12 +134,12 @@ def main(args):
 
     dataset, model = saved_BNNs["model_"+str(args.model_idx)]
     batch_size = 5000 if model["inference"] == "hmc" else 128
-
+    
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
 
     bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
-    bnn.load(device=args.device, rel_path=DATA)
+    bnn.load(device=args.device, rel_path=TESTS)
     filename = bnn.name
     
     ### compute loss gradients
