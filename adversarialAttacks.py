@@ -13,7 +13,7 @@ import copy
 import torch
 from model_nn import NN, saved_NNs
 from model_bnn import BNN, saved_BNNs
-from model_ensemble import Ensemble_NN
+from model_ensemble import Ensemble_NN, ensemble_NNs
 import numpy as np
 from torch.utils.data import DataLoader
 import torch.nn.functional as nnf
@@ -242,8 +242,8 @@ def main(args):
 
     elif args.model_type=="bnn":
 
-        bayesian_attack_samples=[1]
-        bayesian_defence_samples=[100]
+        bayesian_attack_samples=[10]
+        bayesian_defence_samples=[10]
 
         ### BNN model
         dataset, model = saved_BNNs["model_"+str(args.model_idx)]
@@ -280,10 +280,10 @@ def main(args):
 
     elif args.model_type=="ensemble":
 
-        ensemble_size = 100
-        n_samples_list = [100]
+        ensemble_size = 10
+        n_samples_list = [10]
 
-        dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
+        dataset, hid, activ, arch, ep, lr = ensemble_NNs["model_"+str(args.model_idx)].values()
 
         _, _, x_test, y_test, inp_shape, out_size = \
             load_dataset(dataset_name=dataset, n_inputs=args.n_inputs)
@@ -305,11 +305,50 @@ def main(args):
 
             nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
                               device=args.device, method=args.attack_method, filename=nn.name,
-                              n_samples=n_samples)
+                              n_samples=10)
 
             attack_evaluation(net=nn, x_test=x_test, x_attack=nn_attack, y_test=y_test, 
                                 device=args.device, n_samples=n_samples)
         
+    elif args.model_type == "avg_ensemble":
+
+        ensemble_size = 10
+        n_samples = 10
+
+        dataset, hid, activ, arch, ep, lr = ensemble_NNs["model_"+str(args.model_idx)].values()
+
+        _, _, x_test, y_test, inp_shape, out_size = \
+            load_dataset(dataset_name=dataset, n_inputs=args.n_inputs)
+        test_loader = DataLoader(dataset=list(zip(x_test, y_test)))
+
+        x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
+                          torch.from_numpy(y_test[:args.n_inputs]))
+
+        ens_net = Ensemble_NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
+                hidden_size=hid, activation=activ, architecture=arch, epochs=ep, lr=lr,
+                ensemble_size=ensemble_size)
+
+        results = torch.empty(size=(n_samples, 3))
+
+        for seed in range(0, n_samples):
+
+            nn = NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
+                    hidden_size=hid, activation=activ, architecture=arch, epochs=ep, lr=lr)
+            nn.load(device=args.device, rel_path=rel_path, savedir=ens_net.name+"/weights", seed=seed)
+
+            nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
+                              device=args.device, method=args.attack_method, filename=nn.name)
+
+            print(nn_attack.mean(0))
+
+            test_acc, adv_acc, softmax_rob = attack_evaluation(net=nn, x_test=x_test, 
+                        x_attack=nn_attack, y_test=y_test, device=args.device)
+
+            results[seed] = torch.tensor([test_acc, adv_acc, softmax_rob.mean(0)])
+        
+        avg_res = results.mean(0)
+        print(f"\navg test_acc = {avg_res[0]:.2f}\tavg adv_acc = {avg_res[1]:.2f}\tavg avg_softmax_rob = {avg_res[2]:.2f}")
+
     else:
         raise NotImplementedError()
 
@@ -321,7 +360,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", default="nn", type=str, help="nn, bnn, ensemble")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
     parser.add_argument("--train", default=False, type=eval)
-    parser.add_argument("--test", default=True, type=eval)
+    parser.add_argument("--test", default=False, type=eval)
     parser.add_argument("--attack", default=True, type=eval)
     parser.add_argument("--attack_method", default="fgsm", type=str, help="fgsm, pgd")
     parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  

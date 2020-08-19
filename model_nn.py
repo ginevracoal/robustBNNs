@@ -17,9 +17,16 @@ DEBUG = False
 
 saved_NNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
                         "architecture":"conv", "epochs":5, "lr":0.01},
-             "model_1":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
-                        "architecture":"fc2", "epochs":10, "lr":0.01}}
-
+             "model_5":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
+                        "architecture":"fc2", "epochs":10, "lr":0.01},
+             "model_6":{"dataset":"mnist", "hidden_size":256, "activation":"leaky",
+                        "architecture":"conv", "epochs":10, "lr":0.05},
+             "model_7":{"dataset":"mnist", "hidden_size":1024, "activation":"leaky",
+                        "architecture":"fc2", "epochs":5, "lr":0.02},
+             "model_8":{"dataset":"mnist", "hidden_size":1024, "activation":"leaky",
+                        "architecture":"fc2", "epochs":10, "lr":0.02},
+                        }
+                        
 
 class NN(nn.Module):
 

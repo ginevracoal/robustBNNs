@@ -47,7 +47,20 @@ saved_BNNs = {"model_0":["mnist", {"hidden_size":512, "activation":"leaky",
                          "lr":None, "n_samples":100, "warmup":50}],
               "model_4":["fashion_mnist", {"hidden_size":1024, "activation":"leaky",
                          "architecture":"conv", "inference":"svi", "epochs":5,
-                         "lr":0.01, "n_samples":None, "warmup":None}]}
+                         "lr":0.01, "n_samples":None, "warmup":None}],
+              "model_5":["mnist", {"hidden_size":512, "activation":"leaky",
+                         "architecture":"fc2", "inference":"svi", "epochs":10, 
+                         "lr":0.01, "n_samples":None, "warmup":None}],
+              "model_6":["mnist", {"hidden_size":256, "activation":"leaky",
+                         "architecture":"conv", "inference":"svi", "epochs":10, 
+                         "lr":0.05, "n_samples":None, "warmup":None}],
+              "model_7":["mnist", {"hidden_size":1024, "activation":"leaky",
+                         "architecture":"fc2", "inference":"svi", "epochs":5, 
+                         "lr":0.02, "n_samples":None, "warmup":None}],
+              "model_8":["mnist", {"hidden_size":1024, "activation":"leaky",
+                         "architecture":"conv", "inference":"svi", "epochs":10, 
+                         "lr":0.02, "n_samples":None, "warmup":None}],
+                         }
 
 
 class BNN(PyroModule):
