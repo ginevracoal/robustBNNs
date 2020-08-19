@@ -8,7 +8,7 @@ import os
 import argparse
 import math 
 import numpy as np
-from model_nn import NN
+from model_nn import NN, saved_NNs
 
 
 class Ensemble_NN(NN):
@@ -32,10 +32,10 @@ class Ensemble_NN(NN):
 
     def save(self, seed=None, *args, **kwargs):
 
-        savedir = self.name+"/weights/"
+        savedir = self.name+"/weights"
 
         if seed:
-            net.save(savedir=savedir, seed=seed)
+            self.ensemble_models[str(seed)].save(savedir=savedir, seed=seed)
 
         else:
             for idx, net in self.ensemble_models.items():
@@ -77,7 +77,7 @@ class Ensemble_NN(NN):
                 output_size=self.output_size, hidden_size=self.hidden_size, 
                 activation=self.activation, architecture=self.architecture, 
                 epochs=self.epochs, lr=self.lr)
-            net.train(train_loader=train_loader, device=device, seed=seed)
+            net.train(train_loader=train_loader, device=device, seed=seed, save=False)
             self.ensemble_models[str(seed)]=net
             self.save(seed=seed)
 
@@ -121,7 +121,7 @@ def main(args):
    
     if args.train:
         net.train(x_train=x_train[:args.n_inputs], y_train=y_train[:args.n_inputs], 
-                    device=args.device, input_shape=inp_shape)
+                    device=args.device)
     else:
         net.load(device=args.device, input_shape=inp_shape, rel_path=rel_path)
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
-    parser.add_argument("--ensemble_size", default=100, type=int)
+    parser.add_argument("--ensemble_size", default=10, type=int)
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)
     parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  

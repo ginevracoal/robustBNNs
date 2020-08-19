@@ -136,7 +136,7 @@ class NN(nn.Module):
             print("\nstate_dict()['l2.0.weight'] =", self.state_dict()["l2.0.weight"][0,0,:3])
             print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
-    def train(self, train_loader, device, seed=0):
+    def train(self, train_loader, device, seed=0, save=True):
         print("\n == NN training ==")
         random.seed(seed)
         self.to(device)
@@ -168,11 +168,12 @@ class NN(nn.Module):
                   end="\t")
 
         execution_time(start=start, end=time.time())
-        self.save()
+        
+        if save:
+            self.save()
 
     def evaluate(self, test_loader, device, *args, **kwargs):
         self.to(device)
-        # random.seed(0)
 
         with torch.no_grad():
 

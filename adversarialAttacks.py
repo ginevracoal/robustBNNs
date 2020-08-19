@@ -13,7 +13,7 @@ import copy
 import torch
 from model_nn import NN, saved_NNs
 from model_bnn import BNN, saved_BNNs
-from model_ensemble import Ensemble_NN, ensemble_NNs
+from model_ensemble import Ensemble_NN
 import numpy as np
 from torch.utils.data import DataLoader
 import torch.nn.functional as nnf
@@ -80,7 +80,6 @@ def fgsm_attack(net, image, label, hyperparams=None, n_samples=None, avg_posteri
 
     perturbed_image = image + epsilon * image_grad.sign()
     perturbed_image = torch.clamp(perturbed_image, 0, 1)
-
     return perturbed_image
 
 
@@ -277,45 +276,14 @@ def main(args):
             for defence_samples in bayesian_defence_samples:
                 attack_evaluation(net=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
                                   device=args.device, n_samples=defence_samples)
-
-    elif args.model_type=="ensemble":
-
-        ensemble_size = 10
-        n_samples_list = [10]
-
-        dataset, hid, activ, arch, ep, lr = ensemble_NNs["model_"+str(args.model_idx)].values()
-
-        _, _, x_test, y_test, inp_shape, out_size = \
-            load_dataset(dataset_name=dataset, n_inputs=args.n_inputs)
-        test_loader = DataLoader(dataset=list(zip(x_test, y_test)))
-
-        x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
-                          torch.from_numpy(y_test[:args.n_inputs]))
-
-        nn = Ensemble_NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
-                hidden_size=hid, activation=activ, architecture=arch, epochs=ep, lr=lr,
-                ensemble_size=ensemble_size)
-
-        nn.load(device=args.device, rel_path=rel_path)
         
-        for n_samples in n_samples_list:
-
-            if args.test:
-                nn.evaluate(test_loader=test_loader, device=args.device, n_samples=n_samples)
-
-            nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
-                              device=args.device, method=args.attack_method, filename=nn.name,
-                              n_samples=10)
-
-            attack_evaluation(net=nn, x_test=x_test, x_attack=nn_attack, y_test=y_test, 
-                                device=args.device, n_samples=n_samples)
-        
-    elif args.model_type == "avg_ensemble":
+    elif args.model_type == "ensemble":
 
         ensemble_size = 10
         n_samples = 10
+        hyperparams = {"epsilon":0.3}
 
-        dataset, hid, activ, arch, ep, lr = ensemble_NNs["model_"+str(args.model_idx)].values()
+        dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
 
         _, _, x_test, y_test, inp_shape, out_size = \
             load_dataset(dataset_name=dataset, n_inputs=args.n_inputs)
@@ -339,13 +307,11 @@ def main(args):
             nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
                               device=args.device, method=args.attack_method, filename=nn.name)
 
-            print(nn_attack.mean(0))
-
             test_acc, adv_acc, softmax_rob = attack_evaluation(net=nn, x_test=x_test, 
                         x_attack=nn_attack, y_test=y_test, device=args.device)
 
             results[seed] = torch.tensor([test_acc, adv_acc, softmax_rob.mean(0)])
-        
+
         avg_res = results.mean(0)
         print(f"\navg test_acc = {avg_res[0]:.2f}\tavg adv_acc = {avg_res[1]:.2f}\tavg avg_softmax_rob = {avg_res[2]:.2f}")
 
