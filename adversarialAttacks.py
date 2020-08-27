@@ -205,6 +205,8 @@ def attack_evaluation(net, x_test, x_attack, y_test, device, n_samples=None):
 
 def main(args):
 
+    torch.set_default_dtype(torch.float64)
+
     hyperparams = {"epsilon":0.3}
     
     rel_path=DATA if args.savedir=="DATA" else TESTS
@@ -285,7 +287,7 @@ def main(args):
                 attack_evaluation(net=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
                                   device=args.device, n_samples=defence_samples)
         
-    elif args.model_type == "ensemble":
+    elif args.model_type == "avg_ensemble":
 
         ensemble_size = 10
         n_samples = 10
@@ -322,6 +324,33 @@ def main(args):
 
         avg_res = results.mean(0)
         print(f"\navg test_acc = {avg_res[0]:.2f}\tavg adv_acc = {avg_res[1]:.2f}\tavg avg_softmax_rob = {avg_res[2]:.2f}")
+    
+    elif args.model_type == "ensemble":
+
+        ensemble_size = 10
+        n_samples = 10
+
+        dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
+
+        _, _, x_test, y_test, inp_shape, out_size = \
+            load_dataset(dataset_name=dataset, n_inputs=args.n_inputs)
+        test_loader = DataLoader(dataset=list(zip(x_test, y_test)))
+
+        x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
+                          torch.from_numpy(y_test[:args.n_inputs]))
+
+        ens_net = Ensemble_NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
+                hidden_size=hid, activation=activ, architecture=arch, epochs=ep, lr=lr,
+                ensemble_size=ensemble_size)
+
+        ens_net.load(device=args.device, rel_path=rel_path)
+
+        ens_attack = attack(net=ens_net, x_test=x_test, y_test=y_test, dataset_name=dataset, 
+                          device=args.device, method=args.attack_method, 
+                          filename=ens_net.name, hyperparams=hyperparams)
+
+        test_acc, adv_acc, softmax_rob = attack_evaluation(net=ens_net, x_test=x_test, 
+                    x_attack=ens_attack, y_test=y_test, device=args.device)
 
     else:
         raise NotImplementedError()
