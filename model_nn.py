@@ -25,6 +25,8 @@ saved_NNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leak
                         "architecture":"fc2", "epochs":5, "lr":0.02},
              "model_8":{"dataset":"mnist", "hidden_size":1024, "activation":"leaky",
                         "architecture":"fc2", "epochs":10, "lr":0.02},
+             "model_9":{"dataset":"cifar", "hidden_size":1024, "activation":"leaky",
+                        "architecture":"conv2", "epochs":10, "lr":0.01},
                         }
                         
 
@@ -39,6 +41,7 @@ class NN(nn.Module):
         super(NN, self).__init__()
         self.dataset_name = dataset_name
         self.loss_func = nn.CrossEntropyLoss()
+        # self.loss_func = nn.NLLLoss()
         self.architecture = architecture
         self.hidden_size = hidden_size
         self.output_size = output_size
@@ -100,11 +103,36 @@ class NN(nn.Module):
                 nn.MaxPool2d(kernel_size=2, stride=1),
                 nn.Flatten(),
                 nn.Linear(int(hidden_size/(4*4))*input_size, output_size))
+
+        elif architecture == "conv2":
+
+            self.model = nn.Sequential(
+
+                nn.Conv2d(in_channels, 32, kernel_size=5),
+                activ(),
+                nn.MaxPool2d(kernel_size=2), 
+                nn.Conv2d(32, hidden_size, kernel_size=5),
+                activ(),
+                nn.MaxPool2d(kernel_size=2, stride=1),
+                nn.Flatten(),
+            )   
+
+            self.fc_out = lambda x: nn.Linear(x.size(1), output_size)(x)
+
         else:
             raise NotImplementedError()
 
-    def forward(self, inputs, *args, **kwargs):
-        x = self.model(inputs)
+    def forward(self, inputs, device="cpu", *args, **kwargs):
+        
+        if self.architecture == "conv2":
+
+            x = self.model(inputs).to(device)
+            x = self.fc_out(x)
+
+        else:
+            x = self.model(inputs)
+            # x = nnf.log_softmax(x, dim=-1)
+
         return x
 
     def save(self, savedir=None, seed=None):
@@ -138,8 +166,15 @@ class NN(nn.Module):
 
     def train(self, train_loader, device, seed=0, save=True):
         print("\n == NN training ==")
-        random.seed(seed)
         self.to(device)
+        
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
 
         optimizer = torchopt.Adam(params=self.parameters(), lr=self.lr)
 
@@ -153,7 +188,7 @@ class NN(nn.Module):
                 y_batch = y_batch.to(device).argmax(-1)
                 
                 optimizer.zero_grad()
-                outputs = self.forward(x_batch)
+                outputs = self.forward(x_batch, device)
                 loss = self.loss_func(outputs, y_batch)
                 loss.backward()
                 optimizer.step()
