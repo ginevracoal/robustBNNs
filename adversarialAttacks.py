@@ -96,7 +96,8 @@ def pgd_attack(net, image, label, hyperparams=None, n_samples=None, avg_posterio
         image.requires_grad = True  
         output = net.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
 
-        loss = torch.nn.CrossEntropyLoss()(output, label)
+        # loss = torch.nn.CrossEntropyLoss()(output, label)
+        loss = torch.nn.NLLLoss()(output, label)
         net.zero_grad()
         loss.backward()
 
@@ -134,8 +135,12 @@ def attack(net, x_test, y_test, dataset_name, device, method, filename, savedir=
 
     path = TESTS+filename+"/" if savedir is None else TESTS+savedir+"/"
     name = filename+"_"+str(method)
+    plot_save_grid_images(images=x_test, filename=name+"_original.png", savedir=path)
+    plot_save_grid_images(images=adversarial_attack, filename=name+"_attack.png", savedir=path)
+    
     name = name+"_attackSamp="+str(n_samples)+"_attack.pkl" if n_samples else name+"_attack.pkl"
     save_to_pickle(data=adversarial_attack, path=path, filename=name)
+    
     return adversarial_attack
 
 def load_attack(method, filename, savedir=None, n_samples=None, rel_path=TESTS):
@@ -200,6 +205,8 @@ def attack_evaluation(net, x_test, x_attack, y_test, device, n_samples=None):
 
 def main(args):
 
+    hyperparams = {"epsilon":0.3}
+    
     rel_path=DATA if args.savedir=="DATA" else TESTS
     train_inputs = 100 if DEBUG else None
 
@@ -232,7 +239,8 @@ def main(args):
             x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
                               torch.from_numpy(y_test[:args.n_inputs]))
             x_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
-                              device=args.device, method=args.attack_method, filename=nn.name)
+                              device=args.device, method=args.attack_method, 
+                              filename=nn.name, hyperparams=hyperparams)
         else:
             x_attack = load_attack(method=args.attack_method, rel_path=DATA, filename=nn.name)
 
@@ -271,7 +279,7 @@ def main(args):
         for attack_samples in bayesian_attack_samples:
             x_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
                               device=args.device, method=args.attack_method, filename=bnn.name, 
-                              n_samples=attack_samples)
+                              n_samples=attack_samples, hyperparams=hyperparams)
 
             for defence_samples in bayesian_defence_samples:
                 attack_evaluation(net=bnn, x_test=x_test, x_attack=x_attack, y_test=y_test, 
@@ -281,7 +289,6 @@ def main(args):
 
         ensemble_size = 10
         n_samples = 10
-        hyperparams = {"epsilon":0.3}
 
         dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
 
@@ -305,7 +312,8 @@ def main(args):
             nn.load(device=args.device, rel_path=rel_path, savedir=ens_net.name+"/weights", seed=seed)
 
             nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
-                              device=args.device, method=args.attack_method, filename=nn.name)
+                              device=args.device, method=args.attack_method, 
+                              filename=nn.name, hyperparams=hyperparams)
 
             test_acc, adv_acc, softmax_rob = attack_evaluation(net=nn, x_test=x_test, 
                         x_attack=nn_attack, y_test=y_test, device=args.device)

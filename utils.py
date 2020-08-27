@@ -23,14 +23,16 @@ def execution_time(start, end):
 ################
 
 def data_loaders(dataset_name, batch_size, n_inputs, channels="first", shuffle=True):
-    random.seed(0)
+
     x_train, y_train, x_test, y_test, input_shape, num_classes = \
         load_dataset(dataset_name=dataset_name, n_inputs=n_inputs, channels=channels)
 
     train_loader = DataLoader(dataset=list(zip(x_train, y_train)), batch_size=batch_size, 
-                              shuffle=shuffle)
+                              shuffle=shuffle, worker_init_fn=np.random.seed(0),
+                              num_workers=0)
     test_loader = DataLoader(dataset=list(zip(x_test, y_test)), batch_size=batch_size, 
-                             shuffle=shuffle)
+                             shuffle=shuffle, worker_init_fn=np.random.seed(0),
+                             num_workers=0)
 
     return train_loader, test_loader, input_shape, num_classes
 
@@ -270,3 +272,13 @@ def plot_loss_accuracy(dict, path):
     ax2.set_title("accuracy")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path)
+
+def plot_save_grid_images(images, filename, savedir):
+
+    fig=plt.figure(figsize=(8, 8))
+    rows = cols = 10
+    for i in range(1, cols*rows+1):
+        fig.add_subplot(rows, cols, i)
+        plt.imshow(np.squeeze(images[i].detach().cpu().numpy()))
+    plt.show()
+    plt.savefig(savedir+filename)
