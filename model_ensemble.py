@@ -56,8 +56,9 @@ class Ensemble_NN(NN):
 
     def forward(self, inputs, n_samples, *args, **kwargs):
 
-        if n_samples > self.ensemble_size:
-            raise ValueError("Maximum number of samples allowed is ", self.ensemble_size)
+        if n_samples is not None:
+            if n_samples > self.ensemble_size:
+                raise ValueError("Maximum number of samples allowed is ", self.ensemble_size)
 
         selected_models = list(self.ensemble_models.values())[:n_samples]
         ensemble_pred = [net.model(inputs) for net in selected_models]
@@ -106,7 +107,7 @@ class Ensemble_NN(NN):
 
 
 def main(args):
-
+    
     rel_path=DATA if args.savedir=="DATA" else TESTS
 
     if args.device=="cuda":
@@ -123,7 +124,7 @@ def main(args):
         net.train(x_train=x_train[:args.n_inputs], y_train=y_train[:args.n_inputs], 
                     device=args.device)
     else:
-        net.load(device=args.device, input_shape=inp_shape, rel_path=rel_path)
+        net.load(device=args.device, rel_path=rel_path)
 
     if args.test:
         test_loader = DataLoader(dataset=list(zip(x_test[:args.n_inputs], y_test[:args.n_inputs])), batch_size=64, shuffle=True)   

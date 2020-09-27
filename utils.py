@@ -277,8 +277,10 @@ def plot_save_grid_images(images, filename, savedir):
 
     fig=plt.figure(figsize=(8, 8))
     rows = cols = 10
-    for i in range(1, cols*rows+1):
+    for i in range(1, cols*rows):
         fig.add_subplot(rows, cols, i)
         plt.imshow(np.squeeze(images[i].detach().cpu().numpy()))
     plt.show()
+
+    os.makedirs(os.path.dirname(savedir+"/"), exist_ok=True)
     plt.savefig(savedir+filename)

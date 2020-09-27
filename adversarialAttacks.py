@@ -205,8 +205,6 @@ def attack_evaluation(net, x_test, x_attack, y_test, device, n_samples=None):
 
 def main(args):
 
-    torch.set_default_dtype(torch.float64)
-
     hyperparams = {"epsilon":0.3}
     
     rel_path=DATA if args.savedir=="DATA" else TESTS

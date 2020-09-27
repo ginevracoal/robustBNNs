@@ -103,7 +103,7 @@ class BNN(PyroModule):
         priors = {}
         for key, value in self.basenet.state_dict().items():
             loc = torch.zeros_like(value)
-            scale = 10*torch.ones_like(value)
+            scale = torch.ones_like(value)
             prior = Normal(loc=loc, scale=scale)
             priors.update({str(key):prior})
 
@@ -183,7 +183,7 @@ class BNN(PyroModule):
         self.basenet.to(device)
 
     def forward(self, inputs, n_samples=10, avg_posterior=False, seeds=None):
-        
+
         if seeds:
             if len(seeds) != n_samples:
                 raise ValueError("Number of seeds should match number of samples.")
@@ -192,7 +192,7 @@ class BNN(PyroModule):
 
             if avg_posterior is True:
 
-                guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                guide_trace = poutine.trace(self.guide).get_trace(inputs)  
 
                 avg_state_dict = {}
                 for key in self.basenet.state_dict().keys():
@@ -298,16 +298,16 @@ class BNN(PyroModule):
 
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
-                loss += svi.step(x_data=x_batch, y_data=y_batch.argmax(dim=-1))
-
-                outputs = self.forward(x_batch, n_samples=10).to(device)
-                predictions = outputs.argmax(dim=-1)
                 labels = y_batch.argmax(-1)
+                loss += svi.step(x_data=x_batch, y_data=labels)
+
+                outputs = self.forward(x_batch, n_samples=10)
+                predictions = outputs.argmax(dim=-1)
                 correct_predictions += (predictions == labels).sum().item()
             
             if DEBUG:
                 print("\n", pyro.get_param_store()["model.0.weight_loc"][0][:5])
-                print("\n",predictions[:10],"\n", labels[:10])
+                print("\n", predictions[:10], "\n", labels[:10])
 
             total_loss = loss / len(train_loader.dataset)
             accuracy = 100 * correct_predictions / len(train_loader.dataset)
@@ -350,7 +350,7 @@ class BNN(PyroModule):
 
                 x_batch = x_batch.to(device)
                 outputs = self.forward(x_batch, n_samples=n_samples,
-                    seeds=list(range(n_samples))).to(device)
+                    seeds=list(range(n_samples)))#.to(device)
                 predictions = outputs.argmax(-1)
                 labels = y_batch.to(device).argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()

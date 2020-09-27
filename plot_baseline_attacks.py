@@ -50,11 +50,9 @@ def build_baseline_attacks_df(args):
         row_count += 1
 
     ### attack BNN
+
     dataset_name, model = saved_BNNs["model_"+str(args.model_idx)]
     
-    # _,_, x_test, y_test, inp_shape, out_size = \
-    #     load_dataset(dataset_name=dataset_name, n_inputs=args.n_inputs)
-
     bnn = BNN(dataset_name, *list(model.values()), inp_shape, out_size)
     bnn.load(device=args.device, rel_path=rel_path)
 
@@ -64,9 +62,6 @@ def build_baseline_attacks_df(args):
 
     bayesian_attack_samples=[1]
     bayesian_defence_samples=[1,50,100]
-
-    # x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
-    #                   torch.from_numpy(y_test[:args.n_inputs]))
 
     for attack_samples in bayesian_attack_samples:
         bnn_attack = attack(net=bnn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
@@ -107,6 +102,9 @@ def build_baseline_attacks_df(args):
 
         if args.test:
             nn.evaluate(test_loader=test_loader, device=args.device, n_samples=n_samples)
+
+        x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
+                          torch.from_numpy(y_test[:args.n_inputs]))
 
         nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
                           device=args.device, method=args.attack_method, filename=nn.name)
@@ -159,7 +157,7 @@ def lineplot_baseline_attacks(df, dataset_name, attack_method, savedir, n_inputs
     print(np.unique(df[df["model_type"]=="bnn"]["adv_acc"]))
 
 
-    for idx, row in df.iterrows(): #in df.itertuples():
+    for idx, row in df.iterrows(): 
         row["defence_samples"]=xmin
         df = df.append(row, ignore_index=True)
         row["defence_samples"]=xmax
