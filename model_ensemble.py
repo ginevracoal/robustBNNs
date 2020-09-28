@@ -108,10 +108,12 @@ class Ensemble_NN(NN):
 
 def main(args):
     
-    rel_path=DATA if args.savedir=="DATA" else TESTS
+    rel_path=DATA if args.loaddir=="DATA" else TESTS
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        torch.set_default_tensor_type('torch.FloatTensor')
 
     dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
     x_train, y_train, x_test, y_test, inp_shape, out_size = load_dataset(dataset_name=dataset, n_inputs=args.n_inputs, shuffle=True)
@@ -139,6 +141,6 @@ if __name__ == "__main__":
     parser.add_argument("--ensemble_size", default=100, type=int)
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)
-    parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
+    parser.add_argument("--loaddir", default='DATA', type=str, help="choose dir for loading the NN: DDATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

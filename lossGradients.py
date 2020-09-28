@@ -1,5 +1,5 @@
 """
-Compute expected loss gradients 
+Compute expected loss gradients with an increasing number of posterior samples.
 """
 
 import sys
@@ -134,12 +134,13 @@ def main(args):
 
     dataset, model = saved_BNNs["model_"+str(args.model_idx)]
     batch_size = 5000 if model["inference"] == "hmc" else 128
-    
+    rel_path=DATA if args.loaddir=="DATA" else TESTS
+
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
 
     bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
-    bnn.load(device=args.device, rel_path=TESTS)
+    bnn.load(device=args.device, rel_path=rel_path)
     filename = bnn.name
     
     ### compute loss gradients
@@ -154,5 +155,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=1000, type=int)
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
+    parser.add_argument("--loaddir", default='DATA', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())

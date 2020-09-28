@@ -362,7 +362,7 @@ class BNN(PyroModule):
 
 def main(args):
 
-    rel_path=DATA if args.savedir=="DATA" else TESTS
+    rel_path=DATA if args.loaddir=="DATA" else TESTS
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -394,6 +394,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)
-    parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
+    parser.add_argument("--loaddir", default='DATA', type=str, help="choose dir for loading the BNN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

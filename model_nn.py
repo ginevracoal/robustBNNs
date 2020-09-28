@@ -238,7 +238,7 @@ def main(args):
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    rel_path=DATA if args.savedir=="DATA" else TESTS
+    rel_path=DATA if args.loaddir=="DATA" else TESTS
     train_inputs = 100 if DEBUG else None
 
     dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
@@ -265,6 +265,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)
-    parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
+    parser.add_argument("--loaddir", default='DATA', type=str, help="choose dir for loading the NN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

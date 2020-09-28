@@ -1,5 +1,6 @@
 """
-Plot gradients components
+Plot gradients components and vanishing gradients heatmaps 
+for an increasing number of posterior samples.
 """
 
 from savedir import *
@@ -137,6 +138,8 @@ def main(args):
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        torch.set_default_tensor_type('torch.FloatTensor')
 
     # === load BNN and data ===
 
@@ -153,7 +156,7 @@ def main(args):
 
     if args.stripplot is True:
 
-        n_samples_list = [1,10,50,100,500] 
+        n_samples_list = [1,10,100] 
         loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
         stripplot_gradients_components(loss_gradients_list=loss_gradients_list, 
             n_samples_list=n_samples_list, dataset_name=dataset, filename=bnn.name)
