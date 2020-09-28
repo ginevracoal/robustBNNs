@@ -366,6 +366,8 @@ def main(args):
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        torch.set_default_tensor_type('torch.FloatTensor')
 
     dataset, model = saved_BNNs["model_"+str(args.model_idx)]
     batch_size = 5000 if model["inference"] == "hmc" else 128

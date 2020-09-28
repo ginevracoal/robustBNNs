@@ -14,6 +14,7 @@ import torch.nn.functional as nnf
 import torch.optim as torchopt
 
 DEBUG=False
+DEFAULT_DEVICE="cuda"
 
 saved_NNs = {"model_0":{"dataset":"mnist", "hidden_size":512, "activation":"leaky",
                         "architecture":"conv", "epochs":5, "lr":0.01},
@@ -122,7 +123,7 @@ class NN(nn.Module):
         else:
             raise NotImplementedError()
 
-    def forward(self, inputs, device="cuda", *args, **kwargs):
+    def forward(self, inputs, device=DEFAULT_DEVICE, *args, **kwargs):
 
         self.to(device)
         inputs = inputs.to(device)
@@ -234,6 +235,8 @@ def main(args):
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        torch.set_default_tensor_type('torch.FloatTensor')
 
     rel_path=DATA if args.savedir=="DATA" else TESTS
     train_inputs = 100 if DEBUG else None

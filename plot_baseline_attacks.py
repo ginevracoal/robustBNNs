@@ -1,4 +1,6 @@
 """
+Attack determistic, Bayesian and ensemble versions of the same architecture.
+Plot adversarial accuracy and softmax robustness for an increasing number of samples.
 """
 
 from adversarialAttacks import *
@@ -84,14 +86,16 @@ def build_baseline_attacks_df(args):
 
     ### attack ensemble NN
 
-    ensemble_size = 100
+    ensemble_size = 100 
     n_samples_list = [1, 50, 100]
 
     dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
 
     _, _, x_test, y_test, inp_shape, out_size = \
         load_dataset(dataset_name=dataset, n_inputs=args.n_inputs)
-    test_loader = DataLoader(dataset=list(zip(x_test, y_test)))
+
+    x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
+                      torch.from_numpy(y_test[:args.n_inputs]))
 
     nn = Ensemble_NN(dataset_name=dataset, input_shape=inp_shape, output_size=out_size, 
             hidden_size=hid, activation=activ, architecture=arch, epochs=ep, lr=lr,
@@ -101,35 +105,35 @@ def build_baseline_attacks_df(args):
     for n_samples in n_samples_list:
 
         if args.test:
+            test_loader = DataLoader(dataset=list(zip(x_test, y_test)))
             nn.evaluate(test_loader=test_loader, device=args.device, n_samples=n_samples)
 
-        x_test, y_test = (torch.from_numpy(x_test[:args.n_inputs]), 
-                          torch.from_numpy(y_test[:args.n_inputs]))
-
         nn_attack = attack(net=nn, x_test=x_test, y_test=y_test, dataset_name=dataset, 
-                          device=args.device, method=args.attack_method, filename=nn.name)
+                          device=args.device, method=args.attack_method, filename=nn.name,
+                          n_samples=n_samples)
 
         test_acc, adv_acc, softmax_rob = attack_evaluation(net=nn, x_test=x_test, 
-                                        x_attack=nn_attack, y_test=y_test, device=args.device)
+                                        x_attack=nn_attack, y_test=y_test, 
+                                        device=args.device, n_samples=n_samples)
 
         for pointwise_rob in softmax_rob:
             df_dict = {"model_type":"ensemble", "attack_method":args.attack_method, "epsilon":epsilon, 
                        "test_acc":test_acc, "adv_acc":adv_acc, "softmax_rob":pointwise_rob.item(), 
-                       "attack_samples":1,"defence_samples":None}
+                       "attack_samples":n_samples,"defence_samples":n_samples}
 
             df.loc[row_count] = pandas.Series(df_dict)
             row_count += 1
 
     _save_baseline_attacks_df(df=df, dataset_name=dataset_name, 
-        attack_method=args.attack_method, savedir=bnn.name)
+                              attack_method=args.attack_method)
 
     return df 
 
-def _save_baseline_attacks_df(df, dataset_name, attack_method, savedir):
+def _save_baseline_attacks_df(df, dataset_name, attack_method):
 
     print("\nSaving:", df)
-    os.makedirs(os.path.dirname(TESTS+savedir+"/"), exist_ok=True)
-    df.to_csv(TESTS+savedir+"/"+str(dataset_name)+"_baseline_attacks_"+\
+    os.makedirs(os.path.dirname(TESTS+"/"), exist_ok=True)
+    df.to_csv(TESTS+"/"+str(dataset_name)+"_baseline_attacks_"+\
         str(attack_method)+".csv", 
               index = False, header=True)
     return df
@@ -141,7 +145,7 @@ def load_baseline_attacks_df(dataset_name, attack_method, savedir):
     return df
 
 
-def lineplot_baseline_attacks(df, dataset_name, attack_method, savedir, n_inputs):
+def lineplot_baseline_attacks(df, dataset_name, attack_method, n_inputs):
     import seaborn as sns
     import matplotlib
     import matplotlib.pyplot as plt
@@ -154,8 +158,7 @@ def lineplot_baseline_attacks(df, dataset_name, attack_method, savedir, n_inputs
     
     xmin, xmax= (df["defence_samples"].min(),df["defence_samples"].max())
 
-    print(np.unique(df[df["model_type"]=="bnn"]["adv_acc"]))
-
+    # print(np.unique(df[df["model_type"]=="bnn"]["adv_acc"]))
 
     for idx, row in df.iterrows(): 
         row["defence_samples"]=xmin
@@ -175,7 +178,7 @@ def lineplot_baseline_attacks(df, dataset_name, attack_method, savedir, n_inputs
     filename = str(dataset_name)+"_baseline_attacks_"+str(attack_method)+"_"+\
                 str(n_inputs)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
-    plt.savefig(TESTS + savedir + "/" + filename)
+    plt.savefig(TESTS + "/" + filename)
 
 
 def main(args):
@@ -193,7 +196,7 @@ def main(args):
             attack_method=args.attack_method, savedir=bnn.name)
 
     lineplot_baseline_attacks(df=df, dataset_name=dataset_name, 
-        attack_method=args.attack_method, savedir=bnn.name, n_inputs=args.n_inputs)
+        attack_method=args.attack_method, n_inputs=args.n_inputs)
 
 
 
@@ -204,7 +207,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_idx", default=0, type=int, help="choose model idx")
     parser.add_argument("--test", default=True, type=eval)
     parser.add_argument("--attack", default=True, type=eval)
-    parser.add_argument("--n_samples", default=100, type=int)
+    parser.add_argument("--n_samples", default=100, type=int, help="n. of posterior samples")
     parser.add_argument("--attack_method", default="fgsm", type=str, help="fgsm, pgd")
     parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")   
