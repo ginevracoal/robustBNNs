@@ -1,5 +1,5 @@
 """
-Bayesian Neural Network model
+Bayesian Neural Network model.
 """
 
 import argparse
@@ -60,6 +60,9 @@ saved_BNNs = {"model_0":["mnist", {"hidden_size":512, "activation":"leaky",
               "model_8":["mnist", {"hidden_size":1024, "activation":"leaky",
                          "architecture":"conv", "inference":"svi", "epochs":10, 
                          "lr":0.02, "n_samples":None, "warmup":None}],
+              "model_9":["fashion_mnist", {"hidden_size":512, "activation":"leaky",
+                         "architecture":"fc", "inference":"hmc", "epochs":None,
+                         "lr":None, "n_samples":100, "warmup":100}],
                          }
 
 
@@ -75,8 +78,8 @@ class BNN(PyroModule):
         self.lr = lr
         self.n_samples = n_samples
         self.warmup = warmup
-        self.step_size = 0.001
-        self.num_steps = 30
+        self.step_size = 0.005
+        self.num_steps = 10
         self.basenet = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size, 
                         hidden_size=hidden_size, activation=activation, architecture=architecture, 
                         epochs=epochs, lr=lr)
@@ -239,6 +242,7 @@ class BNN(PyroModule):
         return output_probs 
 
     def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device):
+
         print("\n == HMC training ==")
         pyro.clear_param_store()
 
@@ -280,6 +284,8 @@ class BNN(PyroModule):
         self.save()
 
     def _train_svi(self, train_loader, epochs, lr, device):
+        self.device=device
+
         print("\n == SVI training ==")
 
         optimizer = pyro.optim.Adam({"lr":lr})
@@ -325,8 +331,12 @@ class BNN(PyroModule):
                            path=TESTS+self.name+"/"+self.name+"_training.png")
 
     def train(self, train_loader, device):
+        self.device=device
+        self.basenet.device=device
+
         self.to(device)
         self.basenet.to(device)
+
         random.seed(0)
         pyro.set_rng_seed(0)
 
@@ -337,11 +347,16 @@ class BNN(PyroModule):
             self._train_hmc(train_loader, self.n_samples, self.warmup,
                             self.step_size, self.num_steps, device)
 
-    def evaluate(self, test_loader, device, n_samples=10):
+    def evaluate(self, test_loader, device, n_samples=10, seeds_list=None):
+        self.device=device
+        self.basenet.device=device
         self.to(device)
         self.basenet.to(device)
+
         random.seed(0)
         pyro.set_rng_seed(0)
+
+        bnn_seeds=list(range(n_samples)) if seeds_list is None else seeds_list
 
         with torch.no_grad():
 
@@ -349,8 +364,7 @@ class BNN(PyroModule):
             for x_batch, y_batch in test_loader:
 
                 x_batch = x_batch.to(device)
-                outputs = self.forward(x_batch, n_samples=n_samples,
-                    seeds=list(range(n_samples)))#.to(device)
+                outputs = self.forward(x_batch, n_samples=n_samples, seeds=bnn_seeds)
                 predictions = outputs.argmax(-1)
                 labels = y_batch.to(device).argmax(-1)
                 correct_predictions += (predictions == labels).sum().item()
@@ -359,10 +373,9 @@ class BNN(PyroModule):
             print("Accuracy: %.2f%%" % (accuracy))
             return accuracy
 
-
 def main(args):
 
-    rel_path=DATA if args.loaddir=="DATA" else TESTS
+    rel_path=DATA if args.savedir=="DATA" else TESTS
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -384,7 +397,15 @@ def main(args):
         bnn.load(device=args.device, rel_path=rel_path)
 
     if args.test:
-        bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=10)
+        test_samples = 10
+
+        print("\n== Evaluate on test data ==\n")
+        bnn.evaluate(test_loader=test_loader, device=args.device, n_samples=test_samples)
+
+        print("\n== Evaluate each posterior sample ==\n")
+        for seed in range(test_samples):
+            bnn.evaluate(test_loader=test_loader, device=args.device, 
+                n_samples=1, seeds_list=[seed])
 
 
 if __name__ == "__main__":
@@ -392,8 +413,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
-    parser.add_argument("--train", default=True, type=eval)
-    parser.add_argument("--test", default=True, type=eval)
-    parser.add_argument("--loaddir", default='DATA', type=str, help="choose dir for loading the BNN: DATA, TESTS")  
+    parser.add_argument("--train", default=True, type=eval, help="train or load saved model")
+    parser.add_argument("--test", default=True, type=eval, help="evaluate on test data")
+    parser.add_argument("--savedir", default='DATA', type=str, help="choose dir for loading the BNN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

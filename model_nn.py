@@ -1,5 +1,5 @@
 """
-Deterministic Neural Network model
+Deterministic Neural Network model.
 """
 from savedir import *
 from utils import *
@@ -123,7 +123,9 @@ class NN(nn.Module):
         else:
             raise NotImplementedError()
 
-    def forward(self, inputs, device=DEFAULT_DEVICE, *args, **kwargs):
+    def forward(self, inputs, device=None, *args, **kwargs):
+
+        device=self.device if device is None else device
 
         self.to(device)
         inputs = inputs.to(device)
@@ -141,6 +143,7 @@ class NN(nn.Module):
         return x
 
     def save(self, savedir=None, seed=None):
+
         name = self.name 
         directory = name if savedir is None else savedir
         filename = name+"_weights.pt" if seed is None else name+"_weights_"+str(seed)+".pt"
@@ -155,6 +158,8 @@ class NN(nn.Module):
             print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
     def load(self, device, savedir=None, seed=None, rel_path=TESTS):
+        self.device=device
+
         name = self.name
         directory = name if savedir is None else savedir
         filename = name+"_weights.pt" if seed is None else name+"_weights_"+str(seed)+".pt"
@@ -170,7 +175,10 @@ class NN(nn.Module):
             print("\nstate_dict()['out.weight'] =",self.state_dict()["out.weight"][0,:3])
 
     def train(self, train_loader, device, seed=0, save=True):
+
         print("\n == NN training ==")
+
+        self.device=device
         self.to(device)
         
         random.seed(seed)
@@ -213,6 +221,7 @@ class NN(nn.Module):
             self.save()
 
     def evaluate(self, test_loader, device, *args, **kwargs):
+        self.device=device
         self.to(device)
 
         with torch.no_grad():
@@ -238,7 +247,7 @@ def main(args):
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    rel_path=DATA if args.loaddir=="DATA" else TESTS
+    rel_path=DATA if args.savedir=="DATA" else TESTS
     train_inputs = 100 if DEBUG else None
 
     dataset, hid, activ, arch, ep, lr = saved_NNs["model_"+str(args.model_idx)].values()
@@ -263,8 +272,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Base NN")
     parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
-    parser.add_argument("--train", default=True, type=eval)
-    parser.add_argument("--test", default=True, type=eval)
-    parser.add_argument("--loaddir", default='DATA', type=str, help="choose dir for loading the NN: DATA, TESTS")  
+    parser.add_argument("--train", default=True, type=eval, help="train or load saved model")
+    parser.add_argument("--test", default=True, type=eval, help="evaluate on test data")
+    parser.add_argument("--savedir", default='DATA', type=str, help="choose dir for loading the NN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

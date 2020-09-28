@@ -1,5 +1,5 @@
 """
-Ensemble Neural Network model
+Ensemble Neural Network model.
 """
 
 from savedir import *
@@ -108,7 +108,7 @@ class Ensemble_NN(NN):
 
 def main(args):
     
-    rel_path=DATA if args.loaddir=="DATA" else TESTS
+    rel_path=DATA if args.savedir=="DATA" else TESTS
 
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -139,8 +139,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
     parser.add_argument("--ensemble_size", default=100, type=int)
-    parser.add_argument("--train", default=True, type=eval)
-    parser.add_argument("--test", default=True, type=eval)
-    parser.add_argument("--loaddir", default='DATA', type=str, help="choose dir for loading the NN: DDATA, TESTS")  
+    parser.add_argument("--train", default=True, type=eval, help="train or load saved model")
+    parser.add_argument("--test", default=True, type=eval, help="evaluate on test data")
+    parser.add_argument("--savedir", default='DATA', type=str, help="choose dir for loading the NN: DDATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

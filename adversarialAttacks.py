@@ -1,5 +1,5 @@
 """
-FGSM and PGD classic & bayesian adversarial attacks + robustness measures
+FGSM and PGD classic & bayesian adversarial attacks + robustness measures.
 """
 
 import sys
