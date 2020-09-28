@@ -96,8 +96,7 @@ def pgd_attack(net, image, label, hyperparams=None, n_samples=None, avg_posterio
         image.requires_grad = True  
         output = net.forward(inputs=image, n_samples=n_samples, avg_posterior=avg_posterior)
 
-        # loss = torch.nn.CrossEntropyLoss()(output, label)
-        loss = torch.nn.NLLLoss()(output, label)
+        loss = torch.nn.CrossEntropyLoss()(output, label)
         net.zero_grad()
         loss.backward()
 

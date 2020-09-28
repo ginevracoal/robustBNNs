@@ -136,7 +136,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
-    parser.add_argument("--ensemble_size", default=10, type=int)
+    parser.add_argument("--ensemble_size", default=100, type=int)
     parser.add_argument("--train", default=True, type=eval)
     parser.add_argument("--test", default=True, type=eval)
     parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  

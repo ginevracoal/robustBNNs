@@ -49,12 +49,16 @@ def lineplot_increasing_eps(df, dataset, method):
     import matplotlib.pyplot as plt
 
     sns.set_style("darkgrid")
-    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
+    palette=["black","darkred","darkorange"]
     matplotlib.rc('font', **{'size': 10})
-    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(8, 6), dpi=150, facecolor='w', edgecolor='k')
+
+    fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(8, 6), dpi=150, 
+                            facecolor='w', edgecolor='k')
     plt.suptitle(f"{method} attack on {dataset}")
-    sns.lineplot(data=df, x="epsilon", y="adv_acc",  style="n_samples", ax=ax[0])
-    sns.lineplot(data=df, x="epsilon", y="softmax_rob", style="n_samples", ax=ax[1])
+    sns.lineplot(data=df, x="epsilon", y="adv_acc",  style="n_samples", hue="n_samples", 
+                ax=ax[0], palette=palette)
+    sns.lineplot(data=df, x="epsilon", y="softmax_rob", style="n_samples", hue="n_samples", 
+                ax=ax[1], palette=palette)
     
     filename = str(dataset)+"_increasing_eps_"+str(method)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
