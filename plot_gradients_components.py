@@ -23,10 +23,10 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
     loss_gradients_components = []
     plot_samples = []
     for samples_idx, n_samples in enumerate(n_samples_list):
-        print("\n\nsamples = ", n_samples, end="\t")
-
-        print(f"\tmean = {loss_gradients_list[samples_idx].mean():.4f}", end="\t") 
-        print(f"var = {loss_gradients_list[samples_idx].var():.4f}")
+        
+        print("\nsamples = ", n_samples, end="\t")
+        print(f"min = {loss_gradients_list[samples_idx].min():.4f}", end="\t")
+        print(f"max = {loss_gradients_list[samples_idx].max():.4f}")
 
         avg_loss_gradient = np.array(loss_gradients_list[samples_idx]).flatten()
         loss_gradients_components.extend(avg_loss_gradient)
@@ -34,7 +34,6 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
 
     df = pd.DataFrame(data={"loss_gradients": loss_gradients_components, 
                             "n_samples": plot_samples})
-    # print(df.head())
 
     sns.stripplot(x="n_samples", y="loss_gradients", data=df, linewidth=-0.1, ax=ax, 
                   jitter=0.2, alpha=0.4, palette="gist_heat")
@@ -124,8 +123,9 @@ def _get_gradients(args, bnn, test_loader, n_samples_list):
     for posterior_samples in n_samples_list:
 
         if args.compute_grads is True:
-            loss_grads = loss_gradients(net=bnn, n_samples=posterior_samples, savedir=filename+"/", 
-                           data_loader=test_loader, device=args.device, filename=filename)
+            loss_grads = loss_gradients(net=bnn, n_samples=posterior_samples, 
+                            savedir=filename+"/", data_loader=test_loader, 
+                            device=args.device, filename=filename)
         else:
             loss_grads = load_loss_gradients(n_samples=posterior_samples, filename=filename, 
                                              relpath=TESTS, savedir=filename+"/")
@@ -146,28 +146,28 @@ def main(args):
     # === load BNN and data ===
 
     dataset, model = saved_BNNs["model_"+str(args.model_idx)]
-    batch_size = 5000 if model["inference"] == "hmc" else 128
 
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
+        data_loaders(dataset_name=dataset, batch_size=128, 
+                     n_inputs=args.n_inputs, shuffle=False)
 
     bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
     bnn.load(device=args.device, rel_path=rel_path)
 
     # === plot loss gradients ===
 
-    n_samples_list = [1,10,100] 
-    loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
-
     if args.stripplot is True:
 
+        n_samples_list = [1,10,50,100]#,500]
+        loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
         stripplot_gradients_components(loss_gradients_list=loss_gradients_list, 
             n_samples_list=n_samples_list, dataset_name=dataset, filename=bnn.name)
 
     if args.heatmaps is True:
         
-        # n_samples_list = [1,10,100] 
-        # loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
+        n_samples_list = [1,10,100]
+        args.compute_grads=False
+        loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
         vanishing_gradients_heatmaps(dataset=dataset, loss_gradients_list=loss_gradients_list, 
                                      n_samples_list=n_samples_list, filename=bnn.name)
 

@@ -195,9 +195,6 @@ class BNN(PyroModule):
             if len(seeds) != n_samples:
                 raise ValueError("Number of seeds should match number of samples.")
 
-        else:
-            seeds = range(n_samples)
-
         if self.inference == "svi":
 
             if avg_posterior is True:
@@ -216,18 +213,17 @@ class BNN(PyroModule):
 
                 preds = []  
 
-                # if seeds:
-                for seed in seeds:
-                    pyro.set_rng_seed(seed)
-                    guide_trace = poutine.trace(self.guide).get_trace(inputs)   
-                    preds.append(guide_trace.nodes['_RETURN']['value'])
+                if seeds:
+                    for seed in seeds:
+                        pyro.set_rng_seed(seed)
+                        guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                        preds.append(guide_trace.nodes['_RETURN']['value'])
 
-                # else:
+                else:
 
-                #     for _ in range(n_samples):
-                #         pyro.set_rng_seed(seed)
-                #         guide_trace = poutine.trace(self.guide).get_trace(inputs)   
-                #         preds.append(guide_trace.nodes['_RETURN']['value'])
+                    for _ in range(n_samples):
+                        guide_trace = poutine.trace(self.guide).get_trace(inputs)   
+                        preds.append(guide_trace.nodes['_RETURN']['value'])
 
                 if DEBUG:
                     print("\nlearned variational params:\n")
@@ -242,6 +238,9 @@ class BNN(PyroModule):
 
             preds = []
             posterior_predictive = list(self.posterior_predictive.values())
+
+            if seeds is None:
+                seeds = range(n_samples)
 
             for seed in seeds:
                 net = posterior_predictive[seed]

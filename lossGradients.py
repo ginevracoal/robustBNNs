@@ -60,7 +60,8 @@ def loss_gradients(net, data_loader, device, filename, savedir, n_samples=None):
                                   image=images[i].to(device), label=labels[i].to(device)))
 
     loss_gradients = torch.stack(loss_gradients)
-    print(f"\nmean = {loss_gradients.mean():.4f} \t var = {loss_gradients.var():.4f}")
+    # print(f"\nmean = {loss_gradients.mean():.4f} \t std = {loss_gradients.std():.4f}")
+    print(f"\nmin = {loss_gradients.min():.4f} \t max = {loss_gradients.max():.4f}")
 
     loss_gradients = loss_gradients.cpu().detach().numpy().squeeze()
     save_loss_gradients(loss_gradients, n_samples, filename, savedir)
@@ -137,7 +138,7 @@ def main(args):
     rel_path=DATA if args.savedir=="DATA" else TESTS
 
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
+        data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=True)
 
     bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
     bnn.load(device=args.device, rel_path=rel_path)

@@ -52,7 +52,7 @@ All code runs on python3 and pyro 1.3.0.
 - If `--test` is True, the model is evaluated on test data. 
 - `--device=="cuda"` runs the code on GPU, while `--device=="cpu"` runs it on CPU.
 
-Additional descriptions of the arguments can be found in parser "--help".
+Additional descriptions of the arguments can be found in parser `--help`.
 
 **Examples**
 
@@ -67,7 +67,7 @@ python3 grid_search_halfMoons.py --savedir=TESTS --device=cuda
 Figures 2 and 3 (b)
 ```
 python3 model_bnn.py --n_inputs=60000 --model_idx=0 --savedir=TESTS --device=cuda --train=True --test=True
-python3 plot_gradients_components.py --n_inputs=60000 --model_idx=0 --compute_grads=True --savedir=TESTS --device=cuda --stripplot=True --heatmaps=True
+python3 plot_gradients_components.py --n_inputs=10000 --model_idx=0 --compute_grads=True --savedir=TESTS --device=cuda --stripplot=True --heatmaps=True
 ```
 
 

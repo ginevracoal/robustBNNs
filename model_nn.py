@@ -132,13 +132,11 @@ class NN(nn.Module):
 
         if self.architecture == "conv2":
 
-            self.fc_out.to(device)
             x = self.model(inputs)
             x = self.fc_out(x)
 
         else:
             x = self.model(inputs)
-            # x = nnf.log_softmax(x, dim=-1)
 
         return x
 
