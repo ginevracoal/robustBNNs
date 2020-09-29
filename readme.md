@@ -18,21 +18,29 @@ pip install -r requirements.txt
 ### Instructions
 
 There are four datasets available for tests: MNIST, Fashion MNIST, CIFAR10, Half Moons.
+
 All code runs on python3 and pyro 1.3.0.
 
 **Scripts**
 
 `model_nn.py` trains and evaluates a deterministic Neural Network.
+
 `model_bnn.py` trains and evaluates a Bayesian Neural Network.
+
 `model_ensemble.py` trains and evaluates an ensemble of deterministic Neural Networks sharing the same architecture, but with different random initializations and randomly shuffled batches.
 
 `lossGradients.py` loads a trained BNN and computes the expected loss gradients over test points, with an increasing number of posterior samples.
+
 `adversarialAttacks.py` implements FGSM and PGD classic and Bayesian adversarial attacks, and robustness measures. It loads a trained NN, BNN or ensemble network, and then computes the attacks.
+
 `grid_search_halfMoons.py` runs a grid search on the Half Moons dataset, then computes expected loss gradients and adversarial attacks on test data.
 
 `plot_baseline_attacks.py` loads determistic, Bayesian and ensemble versions of the same architecture and attacks them with the chosen method. Then, it plots adversarial accuracy and softmax robustness for an increasing number of samples. 
+
 `plot_eps_attacks.py` loads and attacks a BNN with an increasing attack strenght and an increasing number of samples. The same posterior samples are used when evaluating against the attacks.
+
 `plot_gradients_components.py` loads a BNN, computes and plots gradients components and vanishing gradients heatmaps for an increasing number of posterior samples.
+
 `plot_halfMoons_overparam.py` *TODO*
 
 **Input arguments**
