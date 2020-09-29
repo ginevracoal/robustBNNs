@@ -111,6 +111,6 @@ if __name__ == "__main__":
     parser.add_argument("--attack", default=True, type=eval)
     parser.add_argument("--n_samples", default=100, type=int)
     parser.add_argument("--attack_method", default="fgsm", type=str, help="fgsm, pgd")
-    parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
+    parser.add_argument("--savedir", default='TESTS', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")   
     main(args=parser.parse_args())

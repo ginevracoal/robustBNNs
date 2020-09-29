@@ -25,7 +25,7 @@ def execution_time(start, end):
 def data_loaders(dataset_name, batch_size, n_inputs, channels="first", shuffle=True):
 
     x_train, y_train, x_test, y_test, input_shape, num_classes = \
-        load_dataset(dataset_name=dataset_name, n_inputs=n_inputs, channels=channels)
+        load_dataset(dataset_name=dataset_name, n_inputs=n_inputs, channels=channels, shuffle=shuffle)
 
     train_loader = DataLoader(dataset=list(zip(x_train, y_train)), batch_size=batch_size, 
                               shuffle=shuffle, worker_init_fn=np.random.seed(0),
@@ -279,8 +279,14 @@ def plot_save_grid_images(images, filename, savedir):
     rows = cols = 10
     for i in range(1, cols*rows):
         fig.add_subplot(rows, cols, i)
-        plt.imshow(np.squeeze(images[i].detach().cpu().numpy()))
-    plt.show()
 
+        # plt.imshow(np.squeeze(images[i].detach().cpu().numpy()))
+
+        image = np.squeeze(images[i].detach().cpu().numpy())
+        if len(image.shape) == 1:
+            image = np.expand_dims(image, axis=0)
+        plt.imshow(image)
+
+    plt.show()
     os.makedirs(os.path.dirname(savedir+"/"), exist_ok=True)
     plt.savefig(savedir+filename)

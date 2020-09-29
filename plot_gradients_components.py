@@ -34,7 +34,7 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
 
     df = pd.DataFrame(data={"loss_gradients": loss_gradients_components, 
                             "n_samples": plot_samples})
-    print(df.head())
+    # print(df.head())
 
     sns.stripplot(x="n_samples", y="loss_gradients", data=df, linewidth=-0.1, ax=ax, 
                   jitter=0.2, alpha=0.4, palette="gist_heat")
@@ -136,6 +136,8 @@ def _get_gradients(args, bnn, test_loader, n_samples_list):
 
 def main(args):
 
+    rel_path=DATA if args.savedir=="DATA" else TESTS
+
     if args.device=="cuda":
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
     else:
@@ -150,21 +152,22 @@ def main(args):
         data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
 
     bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
-    bnn.load(device=args.device, rel_path=DATA)
+    bnn.load(device=args.device, rel_path=rel_path)
 
     # === plot loss gradients ===
 
+    n_samples_list = [1,10,100] 
+    loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
+
     if args.stripplot is True:
 
-        n_samples_list = [1,10,100] 
-        loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
         stripplot_gradients_components(loss_gradients_list=loss_gradients_list, 
             n_samples_list=n_samples_list, dataset_name=dataset, filename=bnn.name)
 
     if args.heatmaps is True:
         
-        n_samples_list = [1,10,100] 
-        loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
+        # n_samples_list = [1,10,100] 
+        # loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list)
         vanishing_gradients_heatmaps(dataset=dataset, loss_gradients_list=loss_gradients_list, 
                                      n_samples_list=n_samples_list, filename=bnn.name)
 
@@ -173,6 +176,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=1000, type=int, help="input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
+    parser.add_argument("--savedir", default='TESTS', type=str, help="choose dir for loading the BNN: DATA, TESTS")  
     parser.add_argument("--compute_grads", default="False", type=eval, 
                         help="If True compute else load")
     parser.add_argument("--stripplot", default="True", type=eval)

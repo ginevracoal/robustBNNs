@@ -31,7 +31,7 @@ def loss_gradient(net, image, label, n_samples=None):
             x_copy.requires_grad = True
 
             output = net.forward(inputs=x_copy, n_samples=1, seeds=[i])
-            loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
+            loss = torch.nn.CrossEntropyLoss()(output, label)#.to(dtype=torch.double), label)
             net.zero_grad()
             loss.backward()
             loss_gradient = copy.deepcopy(x_copy.grad.data[0])
@@ -42,7 +42,7 @@ def loss_gradient(net, image, label, n_samples=None):
     else: ## deterministic
         output = net_copy.forward(inputs=x_copy) 
 
-        loss = torch.nn.CrossEntropyLoss()(output.to(dtype=torch.double), label)
+        loss = torch.nn.CrossEntropyLoss()(output, label)#.to(dtype=torch.double), label)
         net.zero_grad()
         loss.backward()
         loss_gradient = copy.deepcopy(x_copy.grad.data[0])
@@ -134,7 +134,7 @@ def main(args):
 
     dataset, model = saved_BNNs["model_"+str(args.model_idx)]
     batch_size = 5000 if model["inference"] == "hmc" else 128
-    rel_path=DATA if args.loaddir=="DATA" else TESTS
+    rel_path=DATA if args.savedir=="DATA" else TESTS
 
     _, test_loader, inp_shape, out_size = \
         data_loaders(dataset_name=dataset, batch_size=128, n_inputs=args.n_inputs, shuffle=False)
@@ -155,6 +155,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=1000, type=int)
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
-    parser.add_argument("--loaddir", default='DATA', type=str, help="DATA, TESTS")  
+    parser.add_argument("--savedir", default='TESTS', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())

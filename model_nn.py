@@ -180,7 +180,7 @@ class NN(nn.Module):
 
         self.device=device
         self.to(device)
-        
+
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -274,6 +274,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_NNs")
     parser.add_argument("--train", default=True, type=eval, help="train or load saved model")
     parser.add_argument("--test", default=True, type=eval, help="evaluate on test data")
-    parser.add_argument("--savedir", default='DATA', type=str, help="choose dir for loading the NN: DATA, TESTS")  
+    parser.add_argument("--savedir", default='TESTS', type=str, help="choose dir for loading the NN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())
