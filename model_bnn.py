@@ -60,8 +60,8 @@ saved_BNNs = {"model_0":["mnist", {"hidden_size":512, "activation":"leaky",
               "model_8":["mnist", {"hidden_size":1024, "activation":"leaky",
                          "architecture":"conv", "inference":"svi", "epochs":10, 
                          "lr":0.02, "n_samples":None, "warmup":None}],
-              "model_9":["fashion_mnist", {"hidden_size":256, "activation":"leaky",
-                         "architecture":"fc2", "inference":"hmc", "epochs":None,
+              "model_9":["fashion_mnist", {"hidden_size":512, "activation":"leaky",
+                         "architecture":"fc", "inference":"hmc", "epochs":None,
                          "lr":None, "n_samples":100, "warmup":100}],
                          }
 
