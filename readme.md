@@ -62,14 +62,14 @@ Reproducing paper figures.
 
 Figure 1
 ```
-python3 grid_search_halfMoons.py --test_points=100 --device=cuda --compute_grads=True --compute_attacks=False --savedir=TESTS 
-python3 plot_halfMoons_overparam.py --test_points=100 --device=cuda --savedir=TESTS
+python3 grid_search_halfMoons.py --test_points=100 --device=cuda --compute_grads=True --compute_attacks=False
+python3 plot_halfMoons_overparam.py --test_points=100 --device=cuda 
 ```
 
 Figures 2 and 3
 ```
-python3 model_bnn.py --n_inputs=60000 --model_idx=0 --savedir=TESTS --device=cuda --train=True --test=True
-python3 plot_gradients_components.py --n_inputs=10000 --model_idx=0 --compute_grads=True --savedir=TESTS --device=cuda --stripplot=True --heatmaps=True
+python3 model_bnn.py --n_inputs=60000 --model_idx=0 --device=cuda --train=True --test=True
+python3 plot_gradients_components.py --n_inputs=10000 --model_idx=0 --compute_grads=True  --device=cuda --stripplot=True --heatmaps=True
 ```
 
 
