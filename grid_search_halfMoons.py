@@ -68,7 +68,8 @@ def _compute_grads(hidden_size, activation, architecture, inference,
            device):
 
     _, test_loader, inp_shape, out_size = \
-        data_loaders(dataset_name="half_moons", batch_size=32, n_inputs=test_points, shuffle=True)
+        data_loaders(dataset_name="half_moons", batch_size=32, n_inputs=test_points, 
+                      shuffle=True)
 
     bnn = MoonsBNN(hidden_size, activation, architecture, inference, 
                    epochs, lr, n_samples, warmup, n_inputs, inp_shape, out_size)
@@ -158,15 +159,14 @@ def main(args):
     inference = ["hmc"]
     n_samples = [250]
     warmup = [100] #, 200, 500]
-    n_inputs = [5000]#, 10000, 15000]
+    n_inputs = [5000, 10000]#, 15000]
     epochs = [None]
     lr = [None]
-    hidden_size = [32, 128]#, 256, 512] 
+    hidden_size = [32, 128, 256, 512]
     activation = ["leaky"]
     architecture = ["fc2"]
-    attack = "fgsm"
     posterior_samples = [10,20,50]
-    test_points = 100
+    attack = "fgsm"
 
     # === grid search ===
 
@@ -178,22 +178,36 @@ def main(args):
     if args.device=="cuda":
 
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
-        # serial_train(*init)
-        # serial_compute_grads(*init, rel_path=rel_path, test_points=test_points)
-        grid_attack(attack, *init, test_points=test_points, device=args.device, 
-                    rel_path=rel_path) 
+        serial_train(*init)
+        
+        if args.compute_grads is True:
+          serial_compute_grads(*init, rel_path=rel_path, test_points=test_points)
+        
+        if args.compute_attacks is True:
+          grid_attack(attack, *init, test_points=test_points, device=args.device, 
+                      rel_path=rel_path) 
 
     else:
 
         torch.set_default_tensor_type('torch.FloatTensor')
         parallel_train(*init)
-        parallel_compute_grads(*init, rel_path=rel_path, test_points=test_points)
-        parallel_grid_attack(attack, *init, rel_path=rel_path, test_points=test_points) 
+
+        if args.compute_grads is True:
+          parallel_compute_grads(*init, rel_path=rel_path, test_points=args.test_points)
+        
+        if args.compute_attacks is True:
+          parallel_grid_attack(attack, *init, rel_path=rel_path, test_points=args.test_points) 
 
 
 if __name__ == "__main__":
     assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="Grid search BNN model")
-    parser.add_argument("--savedir", default='TESTS', type=str, help="choose dir for loading the BNN: DATA, TESTS")  
+    parser.add_argument("--test_points", default=100, type=int, help="n. of test points")   
+    parser.add_argument("--savedir", default='TESTS', type=str, 
+                        help="choose dir for loading the BNN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
+    parser.add_argument("--compute_grads", default="True", type=eval, 
+                        help="If True compute expected loss gradients")
+    parser.add_argument("--compute_attacks", default="False", type=eval, 
+                        help="If True compute adversarial attacks")
     main(args=parser.parse_args())

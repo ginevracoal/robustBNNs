@@ -19,7 +19,7 @@ pip install -r requirements.txt
 
 There are four datasets available for tests: MNIST, Fashion MNIST, CIFAR10, Half Moons.
 
-All code runs on python3 and pyro 1.3.0.
+Code runs on python 3 and pyro 1.3.0.
 
 **Scripts**
 
@@ -33,15 +33,17 @@ All code runs on python3 and pyro 1.3.0.
 
 `adversarialAttacks.py` implements FGSM and PGD classic and Bayesian adversarial attacks, and robustness measures. It loads a trained NN, BNN or ensemble network, and then computes the attacks.
 
-`grid_search_halfMoons.py` runs a grid search on the Half Moons dataset, then computes expected loss gradients and adversarial attacks on test data.
-
 `plot_baseline_attacks.py` loads determistic, Bayesian and ensemble versions of the same architecture and attacks them with the chosen method. Then, it plots adversarial accuracy and softmax robustness for an increasing number of samples. 
 
 `plot_eps_attacks.py` loads and attacks a BNN with an increasing attack strenght and an increasing number of samples. The same posterior samples are used when evaluating against the attacks.
 
 `plot_gradients_components.py` loads a BNN, computes and plots gradients components and vanishing gradients heatmaps for an increasing number of posterior samples.
 
-`plot_halfMoons_overparam.py` *TODO*
+`grid_search_halfMoons.py` runs a grid search on the Half Moons dataset, then computes expected loss gradients and adversarial attacks on test data.
+
+`plot_halfMoons_overparam.py` loads gradients components for the half moons dataset and 
+plots their behaviour towards the overparametrized limit.
+
 
 **Input arguments**
 
@@ -56,15 +58,15 @@ Additional descriptions of the arguments can be found in parser `--help`.
 
 **Examples**
 
-Reproducing paper results.
+Reproducing paper figures.
 
-Figure 1 (b)
+Figure 1
 ```
-python3 grid_search_halfMoons.py --savedir=TESTS --device=cuda
-*TODO*
+python3 grid_search_halfMoons.py --test_points=100 --device=cuda --compute_grads=True --compute_attacks=False --savedir=TESTS 
+python3 plot_halfMoons_overparam.py --test_points=100 --device=cuda --savedir=TESTS
 ```
 
-Figures 2 and 3 (b)
+Figures 2 and 3
 ```
 python3 model_bnn.py --n_inputs=60000 --model_idx=0 --savedir=TESTS --device=cuda --train=True --test=True
 python3 plot_gradients_components.py --n_inputs=10000 --model_idx=0 --compute_grads=True --savedir=TESTS --device=cuda --stripplot=True --heatmaps=True
