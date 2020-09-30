@@ -1,6 +1,6 @@
 ## Robustness of Bayesian Neural Networks to Gradient-Based Attacks
 
-Pyro implementation for paper "Robustness of Byesian Neural Networks to Gradient-Based Attacks", Ginevra Carbone, Matthew Wicker, Luca Laurenti, Andrea Patane, Luca Bortolussi, Guido Sanguinetti, 2020.
+Pyro implementation for paper "Robustness of Bayesian Neural Networks to Gradient-Based Attacks", Ginevra Carbone, Matthew Wicker, Luca Laurenti, Andrea Patane, Luca Bortolussi, Guido Sanguinetti, 2020.
 
 ### Abstract
 
@@ -60,13 +60,13 @@ Additional descriptions of the arguments can be found in parser `--help`.
 
 Reproducing paper figures.
 
-Figure 1
+*Figure 1*
 ```
 python3 grid_search_halfMoons.py --test_points=100 --device=cuda --compute_grads=True --compute_attacks=False
 python3 plot_halfMoons_overparam.py --test_points=100 --device=cuda 
 ```
 
-Figures 2 and 3
+*Figures 2 and 3*
 ```
 python3 model_bnn.py --n_inputs=60000 --model_idx=0 --device=cuda --train=True --test=True
 python3 plot_gradients_components.py --n_inputs=10000 --model_idx=0 --compute_grads=True  --device=cuda --stripplot=True --heatmaps=True
