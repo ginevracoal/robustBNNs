@@ -52,7 +52,7 @@ plots their behaviour towards the overparametrized limit.
 - `--savedir` is the directory where models and generated data are saved and ready to be loaded. The default input is `TESTS`, which corresponds to `tests/%Y-%m-%d` directory.
 - If `--train` is True the model is trained, otherwise it is loaded from the chosen directory. 
 - If `--test` is True, the model is evaluated on test data. 
-- `--device=="cuda"` runs the code on GPU, while `--device=="cpu"` runs it on CPU.
+- `--device==cuda` runs the code on GPU, while `--device==cpu` runs it on CPU.
 
 Additional descriptions of the arguments can be found in parser `--help`.
 
