@@ -6,7 +6,12 @@ Pyro implementation for paper "Robustness of Bayesian Neural Networks to Gradien
 
 Vulnerability to adversarial attacks is one of the principal hurdles to the adoption of deep learning in safety-critical applications. Despite significant efforts, both practical and theoretical, the problem remains open. In this paper, we analyse the geometry of adversarial attacks in the large-data, overparametrized limit for Bayesian Neural Networks (BNNs). We show that, in the limit, vulnerability to gradient-based attacks arises as a result of degeneracy in the data distribution, i.e., when the data lies on a lower-dimensional submanifold of the ambient space. As a direct consequence, we demonstrate that in the limit BNN posteriors are robust to gradient-based adversarial attacks. Experimental results on the MNIST and Fashion MNIST datasets with BNNs trained with Hamiltonian Monte Carlo and Variational Inference support this line of argument, showing that BNNs can display both high accuracy and robustness to gradient based adversarial attacks. 
 
-### Install
+
+### Instructions
+
+**Install**
+
+Code runs with python 3.7.4 and pyro 1.3.0 on Ubuntu 18.10.
 
 ```
 pip3 install virtualenv
@@ -15,13 +20,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Instructions
+**Scripts**
 
 There are four datasets available for tests: MNIST, Fashion MNIST, CIFAR10, Half Moons.
-
-Code runs on python 3 and pyro 1.3.0.
-
-**Scripts**
 
 `model_nn.py` trains and evaluates a deterministic Neural Network.
 
