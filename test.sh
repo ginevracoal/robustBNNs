@@ -19,7 +19,7 @@ python3 model_bnn.py --n_inputs=$N_INPUTS --model_idx=$MODEL_IDX --train=True --
 python3 lossGradients.py --n_inputs=$N_INPUTS --model_idx=$MODEL_IDX --device=$DEVICE
 python3 plot_gradients_components.py --heatmaps=False --stripplot=True --compute_grads=True --n_inputs=$N_INPUTS --model_idx=$MODEL_IDX --device=$DEVICE
 
-python3 adversarialAttacks.py --deterministic=True --attack_method="fgsm" --attack=True --n_inputs=$N_INPUTS --model_idx=$MODEL_IDX --train=False --test=False --savedir=$SAVEDIR --device=$DEVICE
-python3 adversarialAttacks.py --deterministic=False --attack_method="pgd" --attack=True --n_inputs=$N_INPUTS --model_idx=$MODEL_IDX --train=False --test=False --savedir=$SAVEDIR --device=$DEVICE
+python3 adversarialAttacks.py  --attack_method="fgsm" --attack=True --n_inputs=$N_INPUTS --model_idx=$MODEL_IDX --train=False --test=False --savedir=$SAVEDIR --device=$DEVICE
+python3 adversarialAttacks.py  --attack_method="pgd" --attack=True --n_inputs=$N_INPUTS --model_idx=$MODEL_IDX --train=False --test=False --savedir=$SAVEDIR --device=$DEVICE
 
 deactivate
