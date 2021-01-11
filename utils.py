@@ -276,7 +276,7 @@ def plot_loss_accuracy(dict, path):
 def plot_save_grid_images(images, filename, savedir):
 
     fig=plt.figure(figsize=(8, 8))
-    rows = cols = 10
+    rows = cols =int(np.sqrt(len(images)))
     for i in range(1, cols*rows):
         fig.add_subplot(rows, cols, i)
 
