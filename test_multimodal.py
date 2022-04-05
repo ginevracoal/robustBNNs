@@ -22,7 +22,7 @@ parser.add_argument("--model_idx", default=10, type=int, help="10, 11 (HMC only)
 parser.add_argument("--n_samples", default=50, type=int, help="Number of posterior samples.")
 parser.add_argument("--load", default=False, type=eval, help="Load saved computations and evaluate them.")
 parser.add_argument("--epsilon", default=0.2, type=int, help="Strength of a perturbation.")
-parser.add_argument("--same_pca", default=True, type=eval, help="Use same principal components for all subplots.")
+parser.add_argument("--same_pca", default=False, type=eval, help="Use same principal components for all subplots.")
 parser.add_argument("--debug", default=False, type=eval, help="Run script in debugging mode.")
 parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
 args = parser.parse_args()
@@ -45,12 +45,12 @@ df = pd.DataFrame()
 
 print("\n=== Train models ===")
 
+m = BNN_settings["model_"+str(args.model_idx)]
 test_loader = data_loaders(dataset_name=m['dataset'], batch_size=128, shuffle=True, n_inputs=60000)[1]
 
 all_weights = []
 
 for n_inputs in n_inputs_list:
-    m = BNN_settings["model_"+str(args.model_idx)]
 
     #### Always using a single chain with batch_size=n_inputs
     train_loader, _, inp_shape, out_size = data_loaders(dataset_name=m['dataset'], n_inputs=n_inputs,
