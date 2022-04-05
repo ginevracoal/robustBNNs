@@ -84,7 +84,7 @@ class BNN(PyroModule):
         self.basenet = NN(dataset_name=dataset_name, input_shape=input_shape, output_size=output_size, 
                         hidden_size=hidden_size, activation=activation, architecture=architecture, 
                         epochs=epochs, lr=lr)
-        print(self.basenet)
+        # print(self.basenet)
         self.name = self.get_name()
 
     def get_name(self, n_inputs=None):
@@ -135,11 +135,12 @@ class BNN(PyroModule):
 
         return preds
 
-    def save(self, rel_path=TESTS):
+    def save(self, rel_path=TESTS, filename=None):
 
-        name = self.name
-        path = rel_path + name +"/"
-        filename = name+"_weights"
+        if filename is None:
+            filename = self.name+"_weights"
+
+        path = rel_path + self.name +"/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         if self.inference == "svi":
@@ -161,12 +162,15 @@ class BNN(PyroModule):
                 if DEBUG:
                     print(value.state_dict()["model.5.bias"])
 
-    def load(self, device, rel_path=TESTS):
+    def load(self, device, rel_path=TESTS, filename=None):
+
+        if filename is None:
+            filename = self.name+"_weights"
+
+        path = rel_path + self.name +"/"
+
         self.device=device
         self.basenet.device=device
-        name = self.name
-        path = rel_path + name +"/"
-        filename = name+"_weights"
 
         if self.inference == "svi":
             param_store = pyro.get_param_store()
@@ -249,7 +253,7 @@ class BNN(PyroModule):
         output_probs = torch.stack(preds).mean(0)
         return output_probs 
 
-    def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device, rel_path):
+    def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device, rel_path, filename):
 
         print("\n == HMC training ==")
         pyro.clear_param_store()
@@ -289,9 +293,9 @@ class BNN(PyroModule):
         if DEBUG:
             print("\n", weights[model_idx]) 
 
-        self.save(rel_path=rel_path)
+        self.save(rel_path=rel_path, filename=filename)
 
-    def _train_svi(self, train_loader, epochs, lr, device, rel_path):
+    def _train_svi(self, train_loader, epochs, lr, device, rel_path, savedir):
         self.device=device
 
         print("\n == SVI training ==")
@@ -333,12 +337,12 @@ class BNN(PyroModule):
             accuracy_list.append(accuracy)
 
         execution_time(start=start, end=time.time())
-        self.save(rel_path=rel_path)
+        self.save(rel_path=rel_path, filename=filename)
 
         plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
                            path=TESTS+self.name+"/"+self.name+"_training.png")
 
-    def train(self, train_loader, device, rel_path=TESTS):
+    def train(self, train_loader, device, rel_path=TESTS, filename=None):
         self.device=device
         self.basenet.device=device
 
@@ -349,11 +353,11 @@ class BNN(PyroModule):
         pyro.set_rng_seed(0)
 
         if self.inference == "svi":
-            self._train_svi(train_loader, self.epochs, self.lr, device, rel_path)
+            self._train_svi(train_loader, self.epochs, self.lr, device, rel_path=rel_path, filename=filename)
 
         elif self.inference == "hmc":
             self._train_hmc(train_loader, self.n_samples, self.warmup,
-                            self.step_size, self.num_steps, device, rel_path)
+                            self.step_size, self.num_steps, device, rel_path=rel_path, filename=filename)
 
     def evaluate(self, test_loader, device, n_samples=10, seeds_list=None):
         self.device=device
