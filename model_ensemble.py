@@ -141,6 +141,6 @@ if __name__ == "__main__":
     parser.add_argument("--ensemble_size", default=100, type=int, help="size of the ensemble")
     parser.add_argument("--train", default=True, type=eval, help="train or load saved model")
     parser.add_argument("--test", default=True, type=eval, help="evaluate on test data")
-    parser.add_argument("--savedir", default='TESTS', type=str, help="choose dir for loading the NN: DDATA, TESTS")  
+    parser.add_argument("--savedir", default='DATA', type=str, help="choose dir for loading the NN: DDATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

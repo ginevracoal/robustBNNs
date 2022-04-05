@@ -176,7 +176,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=1000, type=int, help="input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
-    parser.add_argument("--savedir", default='TESTS', type=str, 
+    parser.add_argument("--savedir", default='DATA', type=str, 
                         help="choose dir for loading the BNN: DATA, TESTS")  
     parser.add_argument("--compute_grads", default="False", type=eval, 
                         help="If True compute else load")

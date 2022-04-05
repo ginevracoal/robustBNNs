@@ -135,10 +135,10 @@ class BNN(PyroModule):
 
         return preds
 
-    def save(self):
+    def save(self, rel_path=TESTS):
 
         name = self.name
-        path = TESTS + name +"/"
+        path = rel_path + name +"/"
         filename = name+"_weights"
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
@@ -249,7 +249,7 @@ class BNN(PyroModule):
         output_probs = torch.stack(preds).mean(0)
         return output_probs 
 
-    def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device):
+    def _train_hmc(self, train_loader, n_samples, warmup, step_size, num_steps, device, rel_path):
 
         print("\n == HMC training ==")
         pyro.clear_param_store()
@@ -289,9 +289,9 @@ class BNN(PyroModule):
         if DEBUG:
             print("\n", weights[model_idx]) 
 
-        self.save()
+        self.save(rel_path=rel_path)
 
-    def _train_svi(self, train_loader, epochs, lr, device):
+    def _train_svi(self, train_loader, epochs, lr, device, rel_path):
         self.device=device
 
         print("\n == SVI training ==")
@@ -333,12 +333,12 @@ class BNN(PyroModule):
             accuracy_list.append(accuracy)
 
         execution_time(start=start, end=time.time())
-        self.save()
+        self.save(rel_path=rel_path)
 
         plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
                            path=TESTS+self.name+"/"+self.name+"_training.png")
 
-    def train(self, train_loader, device):
+    def train(self, train_loader, device, rel_path=TESTS):
         self.device=device
         self.basenet.device=device
 
@@ -349,11 +349,11 @@ class BNN(PyroModule):
         pyro.set_rng_seed(0)
 
         if self.inference == "svi":
-            self._train_svi(train_loader, self.epochs, self.lr, device)
+            self._train_svi(train_loader, self.epochs, self.lr, device, rel_path)
 
         elif self.inference == "hmc":
             self._train_hmc(train_loader, self.n_samples, self.warmup,
-                            self.step_size, self.num_steps, device)
+                            self.step_size, self.num_steps, device, rel_path)
 
     def evaluate(self, test_loader, device, n_samples=10, seeds_list=None):
         self.device=device
@@ -423,6 +423,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
     parser.add_argument("--train", default=True, type=eval, help="train or load saved model")
     parser.add_argument("--test", default=True, type=eval, help="evaluate on test data")
-    parser.add_argument("--savedir", default='TESTS', type=str, help="choose dir for loading the BNN: DATA, TESTS")  
+    parser.add_argument("--savedir", default='DATA', type=str, help="choose dir for loading the BNN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     main(args=parser.parse_args())

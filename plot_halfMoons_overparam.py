@@ -178,6 +178,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Toy example on half moons")
     parser.add_argument("--test_points", default=100, type=int, help="n. of test points")
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
-    parser.add_argument("--savedir", default='TESTS', type=str, 
+    parser.add_argument("--savedir", default='DATA', type=str, 
                         help="choose dir for loading BNN and gradients: DATA, TESTS")  
     main(args=parser.parse_args())
