@@ -20,7 +20,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model", default="fullBNN", type=str, help="fullBNN")
 parser.add_argument("--model_idx", default=10, type=int, help="10, 11 (HMC only)")
 parser.add_argument("--n_samples", default=50, type=int, help="Number of posterior samples.")
-parser.add_argument("--load", default=False, type=eval, help="Load saved computations and evaluate them.")
+parser.add_argument("--load_model", default=False, type=eval, help="Load saved computations and evaluate them.")
+parser.add_argument("--plot_only", default=False, type=eval, help="Load saved computations and evaluate them.")
 parser.add_argument("--epsilon", default=0.2, type=int, help="Strength of a perturbation.")
 parser.add_argument("--same_pca", default=False, type=eval, help="Use same principal components for all subplots.")
 parser.add_argument("--debug", default=False, type=eval, help="Run script in debugging mode.")
@@ -41,116 +42,126 @@ if args.device=="cuda":
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
-df = pd.DataFrame()
-
-print("\n=== Train models ===")
-
 m = BNN_settings["model_"+str(args.model_idx)]
-test_loader = data_loaders(dataset_name=m['dataset'], batch_size=128, shuffle=True, n_inputs=60000)[1]
 
-all_weights = []
+out_dir = DATA
+rel_path = out_dir+'debug/' if args.debug else out_dir
 
-for n_inputs in n_inputs_list:
+plot_filename = str(m['dataset'])+'_'+str(m['architecture'])+'_'+str(m['inference'])
+plot_filename += '_samePCA' if args.same_pca else '_sepPCA'
 
-    #### Always using a single chain with batch_size=n_inputs
-    train_loader, _, inp_shape, out_size = data_loaders(dataset_name=m['dataset'], n_inputs=n_inputs,
-                                                                  batch_size=n_inputs, shuffle=True)
-    
-    out_dir = DATA
-    rel_path = out_dir+'debug/' if args.debug else out_dir
-    filename = str(m['dataset'])+'_'+str(m['architecture'])+'_'+str(m['inference'])+'_trainInp='+str(n_inputs)
+if args.plot_only:
 
+    _, _, inp_shape, out_size = data_loaders(dataset_name=m['dataset'], n_inputs=1, batch_size=1, shuffle=True)
     net = BNN(m['dataset'], *list(m.values())[1:], inp_shape, out_size)
 
-    if args.load:
-        net.load(device=args.device, rel_path=out_dir, filename=filename)
-    else:
-        net.train(train_loader=train_loader, device=args.device, rel_path=out_dir, filename=filename)
+    df = pd.read_csv(os.path.join(rel_path, net.name, plot_filename+".csv"), index_col=[0])
+    print(df)
 
-    net.evaluate(test_loader=test_loader, device=args.device, n_samples=args.n_samples)
-
-    weights = []
-    for sample_idx in range(args.n_samples):
-        sampled_net = net.posterior_predictive[sample_idx]
-
-        net_weights = []
-        for layer_weights in sampled_net.parameters():
-            net_weights.append(layer_weights.flatten())
-
-        net_weights = torch.cat(net_weights)
-        weights.append(net_weights)
-
-    all_weights.append(torch.stack(weights))
-
-print("\n=== PCA fit ===")
-
-if args.same_pca:
-    all_weights = torch.cat(all_weights).detach().cpu().numpy()
-    print(f'\nweights.shape = {all_weights.shape}')
-
-    pca = decomposition.PCA(n_components=2)
-    pca.fit(all_weights)
-
-print("\n=== prior samples ===")
-
-loc = torch.zeros_like(net_weights)
-scale = torch.ones_like(net_weights)
-prior = Normal(loc=loc, scale=scale)
-
-prior_weights = []
-for _ in range(1000):
-    prior_weights.append(prior.rsample())
-prior_weights = torch.stack(prior_weights).detach().cpu().numpy()
-
-if args.same_pca:
-    principal_weights = pca.transform(prior_weights)
 else:
-    pca = decomposition.PCA(n_components=2)
-    principal_weights = pca.fit_transform(prior_weights)
 
-for obs in principal_weights:
-    df = df.append({'n_samples':1000, 'n_training_points':0, 'x':obs[0], 'y':obs[1]}, ignore_index=True)
+    df = pd.DataFrame()
+    test_loader = data_loaders(dataset_name=m['dataset'], batch_size=128, shuffle=True, n_inputs=60000)[1]
 
-print("\n=== PCA transform posterior samples ===")
+    print("\n=== Train models ===")
 
-for n_inputs in n_inputs_list:
+    all_weights = []
 
-    m = BNN_settings["model_"+str(args.model_idx)]
+    for n_inputs in n_inputs_list:
 
-    # train_loader, test_loader, inp_shape, out_size = data_loaders(dataset_name=m['dataset'], n_inputs=n_inputs,
-    #                                                               batch_size=n_inputs, shuffle=True)
-    
-    savedir = rel_path+str(m['dataset'])+'_'+str(m['architecture'])+'_'+str(m['inference'])+'_trainInp='+str(n_inputs)
+        #### Always using a single chain with batch_size=n_inputs
+        train_loader, _, inp_shape, out_size = data_loaders(dataset_name=m['dataset'], n_inputs=n_inputs,
+                                                                      batch_size=n_inputs, shuffle=True)
 
-    print("\nPCA transform:\n", savedir)
+        filename = str(m['dataset'])+'_'+str(m['architecture'])+'_'+str(m['inference'])+'_trainInp='+str(n_inputs)
 
-    net = BNN(m['dataset'], *list(m.values())[1:], inp_shape, out_size)
-    net.load(rel_path=out_dir, device=args.device, filename=filename)
+        net = BNN(m['dataset'], *list(m.values())[1:], inp_shape, out_size)
 
-    weights = [] 
-    for sample_idx in range(args.n_samples):
-        sampled_net = net.posterior_predictive[sample_idx]
+        if args.load_model:
+            net.load(device=args.device, rel_path=out_dir, filename=filename)
+        else:
+            net.train(train_loader=train_loader, device=args.device, rel_path=out_dir, filename=filename)
 
-        net_weights = []
-        for layer_weights in sampled_net.parameters():
-            net_weights.append(layer_weights.flatten())
+        net.evaluate(test_loader=test_loader, device=args.device, n_samples=args.n_samples)
 
-        weights.append(torch.cat(net_weights))
+        weights = []
+        for sample_idx in range(args.n_samples):
+            sampled_net = net.posterior_predictive[sample_idx]
 
-    weights = torch.stack(weights).detach().cpu().numpy() # shape = (n_samples, total_n_weights)
+            net_weights = []
+            for layer_weights in sampled_net.parameters():
+                net_weights.append(layer_weights.flatten())
+
+            net_weights = torch.cat(net_weights)
+            weights.append(net_weights)
+
+        all_weights.append(torch.stack(weights))
+
+    print("\n=== PCA fit ===")
 
     if args.same_pca:
-        principal_weights = pca.transform(weights)
+        all_weights = torch.cat(all_weights).detach().cpu().numpy()
+        print(f'\nweights.shape = {all_weights.shape}')
 
+        pca = decomposition.PCA(n_components=2)
+        pca.fit(all_weights)
+
+    print("\n=== prior samples ===")
+
+    loc = torch.zeros_like(net_weights)
+    scale = torch.ones_like(net_weights)
+    prior = Normal(loc=loc, scale=scale)
+
+    prior_weights = []
+    for _ in range(1000):
+        prior_weights.append(prior.rsample())
+    prior_weights = torch.stack(prior_weights).detach().cpu().numpy()
+
+    if args.same_pca:
+        principal_weights = pca.transform(prior_weights)
     else:
         pca = decomposition.PCA(n_components=2)
-        principal_weights = pca.fit_transform(weights)
+        principal_weights = pca.fit_transform(prior_weights)
 
     for obs in principal_weights:
-        df = df.append({'n_samples':int(args.n_samples), 'n_training_points':n_inputs, 
-                        'x':obs[0], 'y':obs[1]}, ignore_index=True)
+        df = df.append({'n_samples':1000, 'n_training_points':0, 'x':obs[0], 'y':obs[1]}, ignore_index=True)
 
-print(df.head())
+    print("\n=== PCA transform posterior samples ===")
+
+    for n_inputs in n_inputs_list:
+
+        filename = str(m['dataset'])+'_'+str(m['architecture'])+'_'+str(m['inference'])+'_trainInp='+str(n_inputs)
+
+        print("\nPCA transform:\n", filename)
+
+        net = BNN(m['dataset'], *list(m.values())[1:], inp_shape, out_size)
+        net.load(rel_path=out_dir, device=args.device, filename=filename)
+
+        weights = [] 
+        for sample_idx in range(args.n_samples):
+            sampled_net = net.posterior_predictive[sample_idx]
+
+            net_weights = []
+            for layer_weights in sampled_net.parameters():
+                net_weights.append(layer_weights.flatten())
+
+            weights.append(torch.cat(net_weights))
+
+        weights = torch.stack(weights).detach().cpu().numpy() # shape = (n_samples, total_n_weights)
+
+        if args.same_pca:
+            principal_weights = pca.transform(weights)
+
+        else:
+            pca = decomposition.PCA(n_components=2)
+            principal_weights = pca.fit_transform(weights)
+
+        for obs in principal_weights:
+            df = df.append({'n_samples':int(args.n_samples), 'n_training_points':n_inputs, 
+                            'x':obs[0], 'y':obs[1]}, ignore_index=True)
+
+    print(df.head())
+    df.to_csv(os.path.join(rel_path, net.name, plot_filename+".csv"))
 
 ######################
 # Plot distributions #
@@ -158,7 +169,7 @@ print(df.head())
 
 sns.set_style("darkgrid")
 matplotlib.rc('font', **{'size': 9})
-fig, ax = plt.subplots(1, len(n_inputs_list)+1, figsize=(9, 4), sharex=False, sharey=False, dpi=150, 
+fig, ax = plt.subplots(1, len(n_inputs_list)+1, figsize=(10, 3), sharex=False, sharey=False, dpi=150, 
                         facecolor='w', edgecolor='k') 
 fig.tight_layout()
 fig.subplots_adjust(bottom=0.14)
@@ -174,8 +185,5 @@ for idx, n_inputs in enumerate(n_inputs_list):
     sns.kdeplot(data=temp_df, x='x', y='y', ax=ax[idx+1]) #, hue='n_samples')
     ax[idx+1].set_title(f'posterior\ntraining pts = {n_inputs}', weight='bold')
 
-filename = str(m['dataset'])+'_'+str(m['architecture'])+'_'+str(m['inference'])
-filename += '_samePCA' if args.same_pca else '_sepPCA'
-
-fig.savefig(os.path.join(TESTS, filename+".png"))
+fig.savefig(os.path.join(TESTS, plot_filename+".png"))
 plt.close(fig)
