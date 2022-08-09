@@ -53,15 +53,15 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
 
 def _vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
 
-    fig, axs = plt.subplots(nrows=1, ncols=len(n_samples_list)+1, figsize=(11, 3))
+    fig, axs = plt.subplots(nrows=1, ncols=len(n_samples_list)+1, figsize=(10, 3))
 
     matplotlib.rc('font', **{'size': 10, 'weight':'bold'})
-    bottom, width, height = (.10, .01, .75)
+    bottom, width, height = (.12, .01, .7)
 
     sns.heatmap(image, ax=axs[0], square=True, cmap="Greys_r", cbar=False)
     
     # cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
-    cmap = "rocket_r"
+    cmap = "vlag"
     vmin, vmax = (np.min(gradients), np.max(gradients))
     for col_idx, samples in enumerate(n_samples_list):
         loss_gradient = gradients[col_idx]
@@ -73,18 +73,19 @@ def _vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
 
         if norm == "linfty":
             grad_norm = np.max(np.abs(loss_gradient))
-            expr = r"  $|\langle\frac{\partial L}{\partial x_i}(x,w)\rangle_{p(w|D)}|_\infty$"
+            expr = r"$|\langle\frac{\partial L}{\partial x_i}(x,w)\rangle_{p(w|D)}|_\infty$"
 
         elif norm == "l2":
             grad_norm = np.linalg.norm(x=loss_gradient, ord=2)
-            expr = r"  $|\langle\frac{\partial L}{\partial x_i}(x,w)\rangle_{p(w|D)}|_2$"
+            expr = r"$|\langle\frac{\partial L}{\partial x_i}(x,w)\rangle_{p(w|D)}|_2$"
 
         print(f"vmin={vmin}\tvmax={vmax}\tgrad_norm={grad_norm}")
 
-        axs[col_idx+1].set_title(f"{grad_norm:.3f}", fontsize=16, weight="bold")
-        axs[col_idx+1].set_xlabel(f"Samples = {samples}", fontsize=14, weight="bold")
+        axs[col_idx+1].set_title(f"{grad_norm:.3f}", fontsize=20, weight="bold")
+        axs[col_idx+1].set_xlabel(f"{samples}", fontsize=18, weight="bold")
 
-    axs[0].set_title(f"{expr} =", fontsize=18, weight="bold")
+    axs[0].set_title(f"   {expr}:", fontsize=20, weight="bold")
+    axs[0].set_xlabel(f"   Samples:", fontsize=18, weight="bold")
 
     for ax in axs:
         ax.tick_params(left="off", bottom="off", labelleft='off', labelbottom='off')

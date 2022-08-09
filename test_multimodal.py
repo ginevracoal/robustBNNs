@@ -20,21 +20,21 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model", default="fullBNN", type=str, help="fullBNN")
 parser.add_argument("--model_idx", default=10, type=int, help="10, 11 (HMC only)")
 parser.add_argument("--n_samples", default=50, type=int, help="Number of posterior samples.")
-parser.add_argument("--load_model", default=False, type=eval, help="Load saved computations and evaluate them.")
-parser.add_argument("--plot_only", default=False, type=eval, help="Load saved computations and evaluate them.")
+parser.add_argument("--load_model", default=True, type=eval, help="Load saved computations and evaluate them.")
+parser.add_argument("--plot_only", default=True, type=eval, help="Load saved computations and evaluate them.")
 parser.add_argument("--epsilon", default=0.2, type=int, help="Strength of a perturbation.")
 parser.add_argument("--same_pca", default=False, type=eval, help="Use same principal components for all subplots.")
 parser.add_argument("--debug", default=False, type=eval, help="Run script in debugging mode.")
 parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
 args = parser.parse_args()
 
-assert pyro.__version__.startswith('1.3.0')
+# assert pyro.__version__.startswith('1.3.0')
 
 n_inputs_list = [100] if args.debug else [1000, 10000, 60000]
 
 BNN_settings = {"model_10":{"dataset":"mnist", "hidden_size":512, "activation":"leaky", "architecture":"fc2", 
                                "inference":"hmc", "epochs":None, "lr":None, "hmc_samples":args.n_samples, "warmup":100}, 
-                "model_11":{"dataset":"fashion_mnist", "hidden_size":1024, "activation":"leaky", "architecture":"fc2", 
+                "model_11":{"dataset":"fashion_mnist", "hidden_size":512, "activation":"leaky", "architecture":"fc2", 
                            "inference":"hmc", "epochs":None, "lr":None, "hmc_samples":args.n_samples, "warmup":100}}  
 
 if args.device=="cuda":
@@ -167,6 +167,11 @@ else:
 # Plot distributions #
 ######################
 
+from matplotlib.colors import ListedColormap
+
+cmap = plt.get_cmap('rocket', 5)
+palette = [matplotlib.colors.rgb2hex(cmap(i)) for i in range(cmap.N)]
+
 sns.set_style("darkgrid")
 matplotlib.rc('font', **{'size': 9})
 fig, ax = plt.subplots(1, len(n_inputs_list)+1, figsize=(10, 3), sharex=False, sharey=False, dpi=150, 
@@ -177,13 +182,13 @@ fig.subplots_adjust(left=0.08)
 fig.subplots_adjust(top=0.86)
 
 temp_df = df[df['n_training_points']==0]
-sns.kdeplot(data=temp_df, x='x', y='y', ax=ax[0]) 
-ax[0].set_title(f'prior', weight='bold')
+sns.kdeplot(data=temp_df, x='x', y='y', ax=ax[0], color=palette[0]) 
+ax[0].set_title(f'Prior', weight='bold')
 
 for idx, n_inputs in enumerate(n_inputs_list):
     temp_df = df[df['n_training_points']==n_inputs]
-    sns.kdeplot(data=temp_df, x='x', y='y', ax=ax[idx+1]) #, hue='n_samples')
-    ax[idx+1].set_title(f'posterior\ntraining pts = {n_inputs}', weight='bold')
+    sns.kdeplot(data=temp_df, x='x', y='y', ax=ax[idx+1], color=palette[idx+1])#, hue='n_training_points')
+    ax[idx+1].set_title(f'Posterior\nTraining pts = {n_inputs}', weight='bold')
 
 fig.savefig(os.path.join(TESTS, plot_filename+".png"))
 plt.close(fig)

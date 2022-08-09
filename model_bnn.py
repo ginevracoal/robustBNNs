@@ -143,6 +143,8 @@ class BNN(PyroModule):
         path = rel_path + self.name +"/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
+        print(f"\nSaving {path}{filename}")
+
         if self.inference == "svi":
             self.basenet.to("cpu")
             self.to("cpu")
@@ -269,47 +271,27 @@ class BNN(PyroModule):
 
         start = time.time()
 
-        # for x_batch, y_batch in train_loader:
-        #     x_batch = x_batch.to(device)
-        #     labels = y_batch.to(device).argmax(-1)
-        #     mcmc.run(x_batch, labels)
-
-        # self.posterior_predictive={}
-        # posterior_samples = mcmc.get_samples(n_samples)
-        # state_dict_keys = list(self.basenet.state_dict().keys())
-
-        # if DEBUG:
-        #     print("\n", list(posterior_samples.values())[-1])
-
-        # for model_idx in range(n_samples):
-        #     net_copy = copy.deepcopy(self.basenet)
-
-        #     model_dict=OrderedDict({})
-        #     for weight_idx, weights in enumerate(posterior_samples.values()):
-        #         model_dict.update({state_dict_keys[weight_idx]:weights[model_idx]})
-            
-        #     net_copy.load_state_dict(model_dict)
-        #     self.posterior_predictive.update({model_idx:net_copy})
-
-        self.posterior_predictive={}
-        state_dict_keys = list(self.basenet.state_dict().keys())
-
         for x_batch, y_batch in train_loader:
             x_batch = x_batch.to(device)
             labels = y_batch.to(device).argmax(-1)
             mcmc.run(x_batch, labels)
 
-            posterior_samples = mcmc.get_samples(batch_samples)
+        self.posterior_predictive={}
+        posterior_samples = mcmc.get_samples(n_samples)
+        state_dict_keys = list(self.basenet.state_dict().keys())
 
-            for model_idx in range(batch_samples):
-                net_copy = copy.deepcopy(self.basenet)
+        if DEBUG:
+            print("\n", list(posterior_samples.values())[-1])
 
-                model_dict=OrderedDict({})
-                for weight_idx, weights in enumerate(posterior_samples.values()):
-                    model_dict.update({state_dict_keys[weight_idx]:weights[model_idx]})
-                
-                net_copy.load_state_dict(model_dict)
-                self.posterior_predictive.update({model_idx:net_copy})
+        for model_idx in range(n_samples):
+            net_copy = copy.deepcopy(self.basenet)
+
+            model_dict=OrderedDict({})
+            for weight_idx, weights in enumerate(posterior_samples.values()):
+                model_dict.update({state_dict_keys[weight_idx]:weights[model_idx]})
+            
+            net_copy.load_state_dict(model_dict)
+            self.posterior_predictive.update({model_idx:net_copy})
 
         execution_time(start=start, end=time.time())     
 
