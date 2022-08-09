@@ -67,8 +67,8 @@ def loss_gradients(net, data_loader, device, filename, savedir, n_samples=None):
     save_loss_gradients(loss_gradients, n_samples, filename, savedir)
     return loss_gradients
 
-def save_loss_gradients(loss_gradients, n_samples, filename, savedir):
-    save_to_pickle(data=loss_gradients, path=TESTS+savedir, 
+def save_loss_gradients(loss_gradients, n_samples, filename, savedir, relpath=DATA):
+    save_to_pickle(data=loss_gradients, path=relpath+savedir, 
                    filename=filename+"_samp="+str(n_samples)+"_lossGrads.pkl")
 
 def load_loss_gradients(n_samples, filename, savedir, relpath=DATA):
@@ -129,7 +129,7 @@ def compute_vanishing_norms_idxs(loss_gradients, n_samples_list, norm):
 
 def main(args):
 
-    posterior_samples_list=[1,10,100]
+    posterior_samples_list=[1,10,50,100]#,500]
 
     ### load BNN and data
 
@@ -152,10 +152,10 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert pyro.__version__.startswith('1.3.0')
+    # assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=1000, type=int)
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
-    parser.add_argument("--savedir", default='TESTS', type=str, help="DATA, TESTS")  
+    parser.add_argument("--savedir", default='DATA', type=str, help="DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help='cpu, cuda')   
     main(args=parser.parse_args())

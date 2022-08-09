@@ -248,7 +248,9 @@ class BNN(PyroModule):
 
             for seed in seeds:
                 net = posterior_predictive[seed]
-                preds.append(net.forward(inputs))
+                out = net.forward(inputs)
+                out = nnf.softmax(out, dim=-1)
+                preds.append(out)
     
         output_probs = torch.stack(preds).mean(0)
         return output_probs 
@@ -266,36 +268,57 @@ class BNN(PyroModule):
         mcmc = MCMC(kernel=kernel, num_samples=batch_samples, warmup_steps=warmup, num_chains=1)
 
         start = time.time()
+
+        # for x_batch, y_batch in train_loader:
+        #     x_batch = x_batch.to(device)
+        #     labels = y_batch.to(device).argmax(-1)
+        #     mcmc.run(x_batch, labels)
+
+        # self.posterior_predictive={}
+        # posterior_samples = mcmc.get_samples(n_samples)
+        # state_dict_keys = list(self.basenet.state_dict().keys())
+
+        # if DEBUG:
+        #     print("\n", list(posterior_samples.values())[-1])
+
+        # for model_idx in range(n_samples):
+        #     net_copy = copy.deepcopy(self.basenet)
+
+        #     model_dict=OrderedDict({})
+        #     for weight_idx, weights in enumerate(posterior_samples.values()):
+        #         model_dict.update({state_dict_keys[weight_idx]:weights[model_idx]})
+            
+        #     net_copy.load_state_dict(model_dict)
+        #     self.posterior_predictive.update({model_idx:net_copy})
+
+        self.posterior_predictive={}
+        state_dict_keys = list(self.basenet.state_dict().keys())
+
         for x_batch, y_batch in train_loader:
             x_batch = x_batch.to(device)
             labels = y_batch.to(device).argmax(-1)
             mcmc.run(x_batch, labels)
 
+            posterior_samples = mcmc.get_samples(batch_samples)
+
+            for model_idx in range(batch_samples):
+                net_copy = copy.deepcopy(self.basenet)
+
+                model_dict=OrderedDict({})
+                for weight_idx, weights in enumerate(posterior_samples.values()):
+                    model_dict.update({state_dict_keys[weight_idx]:weights[model_idx]})
+                
+                net_copy.load_state_dict(model_dict)
+                self.posterior_predictive.update({model_idx:net_copy})
+
         execution_time(start=start, end=time.time())     
-
-        self.posterior_predictive={}
-        posterior_samples = mcmc.get_samples(n_samples)
-        state_dict_keys = list(self.basenet.state_dict().keys())
-
-        if DEBUG:
-            print("\n", list(posterior_samples.values())[-1])
-
-        for model_idx in range(n_samples):
-            net_copy = copy.deepcopy(self.basenet)
-
-            model_dict=OrderedDict({})
-            for weight_idx, weights in enumerate(posterior_samples.values()):
-                model_dict.update({state_dict_keys[weight_idx]:weights[model_idx]})
-            
-            net_copy.load_state_dict(model_dict)
-            self.posterior_predictive.update({str(model_idx):net_copy})
 
         if DEBUG:
             print("\n", weights[model_idx]) 
 
         self.save(rel_path=rel_path, filename=filename)
 
-    def _train_svi(self, train_loader, epochs, lr, device, rel_path, savedir):
+    def _train_svi(self, train_loader, epochs, lr, device, rel_path, filename):
         self.device=device
 
         print("\n == SVI training ==")
@@ -340,9 +363,9 @@ class BNN(PyroModule):
         self.save(rel_path=rel_path, filename=filename)
 
         plot_loss_accuracy(dict={'loss':loss_list, 'accuracy':accuracy_list},
-                           path=TESTS+self.name+"/"+self.name+"_training.png")
+                           path=rel_path+self.name+"/"+self.name+"_training.png")
 
-    def train(self, train_loader, device, rel_path=TESTS, filename=None):
+    def train(self, train_loader, device, rel_path, filename=None):
         self.device=device
         self.basenet.device=device
 
@@ -357,7 +380,7 @@ class BNN(PyroModule):
 
         elif self.inference == "hmc":
             self._train_hmc(train_loader, self.n_samples, self.warmup,
-                            self.step_size, self.num_steps, device, rel_path=rel_path, filename=filename)
+                            self.step_size, self.num_steps, device=device, rel_path=rel_path, filename=filename)
 
     def evaluate(self, test_loader, device, n_samples=10, seeds_list=None):
         self.device=device
@@ -404,7 +427,7 @@ def main(args):
     bnn = BNN(dataset, *list(model.values()), inp_shape, out_size)
    
     if args.train:
-        bnn.train(train_loader=train_loader, device=args.device)
+        bnn.train(train_loader=train_loader, device=args.device, rel_path=rel_path)
     else:
         bnn.load(device=args.device, rel_path=rel_path)
 
@@ -421,7 +444,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert pyro.__version__.startswith('1.3.0')
+    # assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_inputs", default=60000, type=int, help="number of input points")
     parser.add_argument("--model_idx", default=0, type=int, help="choose idx from saved_BNNs")
