@@ -27,8 +27,8 @@ def plot_half_moons(n_points=200):
                                      "label":labels[:]})
     g = sns.scatterplot(data=df, x="x", y="y", hue="label", alpha=0.9, ax=ax)
     filename = "halfMoons_"+str(n_points)+".png"
-    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
-    plt.savefig(TESTS + filename)
+    os.makedirs(os.path.dirname(PLOTS), exist_ok=True)
+    plt.savefig(PLOTS + filename)
 
 
 def build_overparam_scatterplot_dataset(hidden_size, activation, architecture, 
@@ -87,8 +87,12 @@ def overparam_scatterplot(dataset, hidden_size, test_points, inference, orient="
     nrows = len(np.unique(categorical_rows))
 
     sns.set_style("darkgrid")
-    cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
     matplotlib.rc('font', **{'size': 10, 'weight' : 'bold'})
+    # cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", ["orangered","darkred","black"])
+    # cmap = "rocket_r"
+    # cmap = plt.get_cmap('flare', 4)
+    cmap = plt.get_cmap('rocket_r', 5)
+    cmap = [matplotlib.colors.rgb2hex(cmap(i+1)) for i in range(len(np.unique(dataset["n_inputs"])))]
 
     if orient == "v":
         num_rows, num_cols = (nrows, 1) 
@@ -98,16 +102,17 @@ def overparam_scatterplot(dataset, hidden_size, test_points, inference, orient="
         num_rows, num_cols = (1, nrows)
         figsize = (10, 2.3)
     
-    fig, ax = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=figsize, dpi=300, 
+    fig, ax = plt.subplots(nrows=num_rows, ncols=num_cols, figsize=figsize, dpi=150, 
                            facecolor='w', edgecolor='k')
     vmin, vmax = (dataset["test_acc"].min(), dataset["test_acc"].max())
     norm = matplotlib.colors.Normalize(vmin=vmin,vmax=vmax)
+
         
     for r, row_val in enumerate(np.unique(categorical_rows)):
         df = dataset[categorical_rows==row_val]
 
         legend = "full" if r==3 else None
-        g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", alpha=0.8, 
+        g = sns.scatterplot(data=df, x="loss_gradients_x", y="loss_gradients_y", alpha=0.7, 
                             hue="n_inputs", size="n_inputs", legend=legend, 
                             ax=ax[r], sizes=(30, 80), palette=cmap)
         ax[r].set_xlabel("")
@@ -123,10 +128,10 @@ def overparam_scatterplot(dataset, hidden_size, test_points, inference, orient="
         else:
             ax[r].set_title(str(row_val), fontdict=dict(weight='bold',size=10)) 
             ax[r].xaxis.set_label_position("bottom")
-            ax[r].set_xlabel(r"$\langle \frac{\partial L}{\partial x_1}(x,w)\rangle_{w}$", 
+            ax[r].set_xlabel(r"$\langle \frac{\partial L}{\partial x_1}(x,w)\rangle_{p(w|D)}$", 
                              labelpad=3, fontsize=11)
 
-    ax[0].set_ylabel(r"$\langle \frac{\partial L}{\partial x_2}(x,w)\rangle_{w}$",
+    ax[0].set_ylabel(r"$\langle \frac{\partial L}{\partial x_2}(x,w)\rangle_{p(w|D)}$",
                      labelpad=3, fontsize=11)
 
     if orient == "h":
@@ -135,8 +140,8 @@ def overparam_scatterplot(dataset, hidden_size, test_points, inference, orient="
 
     plt.tight_layout()
     filename = "halfMoons_final_hmc_"+str(test_points)+".png"
-    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
-    plt.savefig(TESTS + filename)
+    os.makedirs(os.path.dirname(PLOTS), exist_ok=True)
+    plt.savefig(PLOTS + filename)
 
 
 def main(args):
@@ -145,15 +150,15 @@ def main(args):
     # === settings ===
 
     inference = ["hmc"]
-    n_samples = [250]
-    warmup = [100] #, 200, 500]
-    n_inputs = [5000, 10000] #15000]
+    n_samples = [50]
+    warmup = [100, 200, 500]
+    n_inputs = [5000, 10000, 15000]
     epochs = [None]
     lr = [None]
     hidden_size = [32, 128, 256, 512]
     activation = ["leaky"]
     architecture = ["fc2"]
-    posterior_samples = [10,20,50]
+    posterior_samples =  [10,20,50]#[250]
 
     # === plot ===
 
@@ -166,15 +171,15 @@ def main(args):
 
     # plot_half_moons(args.test_points)
 
-    build_overparam_scatterplot_dataset(hidden_size, activation, architecture, inference, 
-            epochs, lr, n_samples, warmup, n_inputs, posterior_samples, 
-            device=args.device, test_points=args.test_points, rel_path=rel_path)
-    dataset = pandas.read_csv(TESTS+"halfMoons_lossGrads_final_"+str(args.test_points)+".csv")
+    # build_overparam_scatterplot_dataset(hidden_size, activation, architecture, inference, 
+    #         epochs, lr, n_samples, warmup, n_inputs, posterior_samples, 
+    #         device=args.device, test_points=args.test_points, rel_path=rel_path)
+    dataset = pandas.read_csv(rel_path+"halfMoons_lossGrads_final_"+str(args.test_points)+".csv")
     overparam_scatterplot(dataset, device=args.device, test_points=args.test_points, 
-                        inference=inference, hidden_size=[32,128,256,512], orient="h")
+                        inference=inference, hidden_size=hidden_size, orient="h")
 
 if __name__ == "__main__":
-    assert pyro.__version__.startswith('1.3.0')
+    # assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="Toy example on half moons")
     parser.add_argument("--test_points", default=100, type=int, help="n. of test points")
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  

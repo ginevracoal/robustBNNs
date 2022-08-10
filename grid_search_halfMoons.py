@@ -28,7 +28,7 @@ class MoonsBNN(BNN):
 #####################
 
 def _train(hidden_size, activation, architecture, inference, 
-           epochs, lr, n_samples, warmup, n_inputs, posterior_samples, device):
+           epochs, lr, n_samples, warmup, n_inputs, posterior_samples, rel_path, device):
 
     batch_size = 64 if inference=="svi" else 1024
 
@@ -38,26 +38,26 @@ def _train(hidden_size, activation, architecture, inference,
 
     bnn = MoonsBNN(hidden_size, activation, architecture, inference, 
                    epochs, lr, n_samples, warmup, n_inputs, inp_shape, out_size)
-    bnn.train(train_loader=train_loader, device=device)
+    bnn.train(train_loader=train_loader, device=device, rel_path=rel_path)
 
 def serial_train(hidden_size, activation, architecture, inference, 
-                         epochs, lr, n_samples, warmup, n_inputs, posterior_samples):
+                         epochs, lr, n_samples, warmup, n_inputs, posterior_samples, rel_path):
 
     combinations = list(itertools.product(hidden_size, activation, architecture, inference, 
                          epochs, lr, n_samples, warmup, n_inputs, posterior_samples))
     
     for init in combinations:
-        _train(*init, "cuda")
+        _train(*init, rel_path, "cuda")
 
 def parallel_train(hidden_size, activation, architecture, inference, 
-                         epochs, lr, n_samples, warmup, n_inputs, posterior_samples):
+                         epochs, lr, n_samples, warmup, n_inputs, posterior_samples, rel_path):
     from joblib import Parallel, delayed
 
     combinations = list(itertools.product(hidden_size, activation, architecture, inference, 
                          epochs, lr, n_samples, warmup, n_inputs, posterior_samples))
     
     Parallel(n_jobs=10)(
-        delayed(_train)(*init, "cpu") for init in combinations)
+        delayed(_train)(*init, rel_path, "cpu") for init in combinations)
 
 #######################
 # computing gradients #
@@ -158,14 +158,14 @@ def main(args):
 
     inference = ["hmc"]
     n_samples = [250]
-    warmup = [100] #, 200, 500]
-    n_inputs = [5000, 10000]#, 15000]
+    warmup = [100, 200, 500]
+    n_inputs = [5000, 10000, 15000]
     epochs = [None]
     lr = [None]
     hidden_size = [32, 128, 256, 512]
     activation = ["leaky"]
     architecture = ["fc2"]
-    posterior_samples = [10,20,50]
+    posterior_samples = [250]#[10,20,50]
     attack = "fgsm"
 
     # === grid search ===
@@ -178,19 +178,19 @@ def main(args):
     if args.device=="cuda":
 
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
-        serial_train(*init)
+        serial_train(*init, rel_path)
         
         if args.compute_grads is True:
-          serial_compute_grads(*init, rel_path=rel_path, test_points=test_points)
+          serial_compute_grads(*init, rel_path=rel_path, test_points=args.test_points)
         
         if args.compute_attacks is True:
-          grid_attack(attack, *init, test_points=test_points, device=args.device, 
+          grid_attack(attack, *init, test_points=args.test_points, device=args.device, 
                       rel_path=rel_path) 
 
     else:
 
         torch.set_default_tensor_type('torch.FloatTensor')
-        parallel_train(*init)
+        parallel_train(*init, rel_path)
 
         if args.compute_grads is True:
           parallel_compute_grads(*init, rel_path=rel_path, test_points=args.test_points)
@@ -200,10 +200,10 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert pyro.__version__.startswith('1.3.0')
+    # assert pyro.__version__.startswith('1.3.0')
     parser = argparse.ArgumentParser(description="Grid search BNN model")
     parser.add_argument("--test_points", default=100, type=int, help="n. of test points")   
-    parser.add_argument("--savedir", default='TESTS', type=str, 
+    parser.add_argument("--savedir", default='DATA', type=str, 
                         help="choose dir for loading the BNN: DATA, TESTS")  
     parser.add_argument("--device", default='cuda', type=str, help="cpu, cuda")  
     parser.add_argument("--compute_grads", default="True", type=eval, 

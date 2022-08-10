@@ -190,5 +190,5 @@ for idx, n_inputs in enumerate(n_inputs_list):
     sns.kdeplot(data=temp_df, x='x', y='y', ax=ax[idx+1], color=palette[idx+1])#, hue='n_training_points')
     ax[idx+1].set_title(f'Posterior\nTraining pts = {n_inputs}', weight='bold')
 
-fig.savefig(os.path.join(TESTS, plot_filename+".png"))
+fig.savefig(os.path.join(PLOTS, plot_filename+".png"))
 plt.close(fig)

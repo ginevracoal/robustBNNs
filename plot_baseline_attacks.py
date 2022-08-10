@@ -178,7 +178,7 @@ def lineplot_baseline_attacks(df, dataset_name, attack_method, n_inputs):
     filename = str(dataset_name)+"_baseline_attacks_"+str(attack_method)+"_"+\
                 str(n_inputs)+".png"
     os.makedirs(os.path.dirname(TESTS), exist_ok=True)
-    plt.savefig(TESTS + "/" + filename)
+    plt.savefig(PLOTS + "/" + filename)
 
 
 def main(args):

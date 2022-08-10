@@ -14,7 +14,7 @@ import pandas as pd
 import os
 
 
-def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_name, filename, relpath):
+def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_name, filename):
 
     sns.set_style("darkgrid")
     matplotlib.rc('font', **{'weight': 'bold', 'size': 10})
@@ -47,7 +47,7 @@ def stripplot_gradients_components(loss_gradients_list, n_samples_list, dataset_
     # fig.text(0.03, 0.5, r"Expected gradients $\langle\frac{\partial L}{\partial x_i}(x,w)\rangle_{p(w|D)}$", 
     #          va='center', rotation='vertical')
 
-    path = relpath+filename+"/"
+    path = PLOTS+"/"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path + filename + "_gradComponents.png")
 
@@ -98,8 +98,7 @@ def _vanishing_gradient_heatmap(image, gradients, n_samples_list, norm):
     fig.tight_layout(h_pad=2, w_pad=2, rect=[0,0,0.93,1])
     return fig
 
-def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, filename, relpath,
-                                 norm="linfty"):
+def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, filename, norm="linfty"):
 
     transposed_gradients = np.transpose(np.array(loss_gradients_list), axes=(1, 0, 2, 3))
     if transposed_gradients.shape[1] != len(n_samples_list):
@@ -117,7 +116,7 @@ def vanishing_gradients_heatmaps(dataset, loss_gradients_list, n_samples_list, f
         fig = _vanishing_gradient_heatmap(original_im, im_gradients, 
                                          n_samples_list=n_samples_list, norm=norm)
 
-        path=relpath+filename+"/vanishing_gradients_heatmaps/"
+        path=PLOTS+"/vanishing_gradients_heatmaps/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
         fig.savefig(path+filename+"_vanGrad_"+str(im_idx)+".png")
         plt.close()
@@ -169,7 +168,7 @@ def main(args):
         n_samples_list = [1,10,50,100]#,500]
         loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list, rel_path)
         stripplot_gradients_components(loss_gradients_list=loss_gradients_list, 
-            n_samples_list=n_samples_list, dataset_name=dataset, filename=bnn.name, relpath=rel_path)
+            n_samples_list=n_samples_list, dataset_name=dataset, filename=bnn.name)
 
     if args.heatmaps is True:
         
@@ -177,7 +176,7 @@ def main(args):
         args.compute_grads=False
         loss_gradients_list = _get_gradients(args, bnn, test_loader, n_samples_list, rel_path)
         vanishing_gradients_heatmaps(dataset=dataset, loss_gradients_list=loss_gradients_list, 
-                                     n_samples_list=n_samples_list, filename=bnn.name, relpath=rel_path)
+                                     n_samples_list=n_samples_list, filename=bnn.name)
 
 
 if __name__ == "__main__":

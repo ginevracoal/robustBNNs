@@ -33,13 +33,13 @@ def build_eps_attacks_df(bnn, dataset, device, method, x_test, y_test,
                 row_count += 1
 
     print("\nSaving:", df)
-    os.makedirs(os.path.dirname(TESTS+savedir+"/"), exist_ok=True)
-    df.to_csv(TESTS+savedir+"/"+str(dataset)+"_increasing_eps_"+str(method)+".csv", 
+    os.makedirs(os.path.dirname(DATA+savedir+"/"), exist_ok=True)
+    df.to_csv(DATA+savedir+"/"+str(dataset)+"_increasing_eps_"+str(method)+".csv", 
               index = False, header=True)
     return df
 
 def load_eps_attacks_df(dataset, method, savedir):
-    return pandas.read_csv(TESTS+savedir+"/"+str(dataset)+"_increasing_eps_"+str(method)+".csv")
+    return pandas.read_csv(DATA+savedir+"/"+str(dataset)+"_increasing_eps_"+str(method)+".csv")
 
 
 def lineplot_increasing_eps(df, dataset, method):
@@ -61,8 +61,8 @@ def lineplot_increasing_eps(df, dataset, method):
                 ax=ax[1], palette=palette)
     
     filename = str(dataset)+"_increasing_eps_"+str(method)+".png"
-    os.makedirs(os.path.dirname(TESTS), exist_ok=True)
-    plt.savefig(TESTS + filename)
+    os.makedirs(os.path.dirname(PLOTS), exist_ok=True)
+    plt.savefig(PLOTS + filename)
 
 
 def main(args):
