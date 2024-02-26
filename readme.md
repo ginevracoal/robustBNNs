@@ -1,3 +1,8 @@
+# New version
+"An updated version of the code and of the experiments can be found at https://github.com/matthewwicker/OnTheRobustnessOfBNNs"
+
+# Old version
+
 ## Robustness of Bayesian Neural Networks to Gradient-Based Attacks
 
 Pyro implementation for paper "Robustness of Bayesian Neural Networks to Gradient-Based Attacks", Ginevra Carbone, Matthew Wicker, Luca Laurenti, Andrea Patane, Luca Bortolussi, Guido Sanguinetti, 2020.
